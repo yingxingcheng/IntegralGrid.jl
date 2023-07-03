@@ -1,6 +1,6 @@
-using IntegralGrid
-using Test
+test_files = ["test_basegrid.jl", "test_atomgrid.jl"]
 
-@testset "IntegralGrid.jl" begin
-    # Write your tests here.
+println("Running tests:")
+for t in test_files
+    include(t)
 end
