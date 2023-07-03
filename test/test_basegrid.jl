@@ -6,9 +6,10 @@ using Test
     _ref_points = collect(-1:0.1:1)
     _ref_weights = ones(21) .* 0.1
     grid = Grid(_ref_points, _ref_weights)
+    grid2 = Grid([1,2,3], [2,3,4])
 
     # test test_init_grid
-    @test typeof(grid) == Grid
+    @test isa(grid, Grid)
     @test isapprox(grid.points, _ref_points, atol=1e-7)
     @test isapprox(grid.weights, _ref_weights)
     @test size(grid.weights) == size(_ref_weights)

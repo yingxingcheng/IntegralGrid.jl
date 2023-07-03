@@ -10,69 +10,50 @@ abstract type AbstractGrid end
 """
 Basic Grid struct for grid information storage.
 """
-struct Grid <: AbstractGrid
-    points::Union{Array{Float64,1},Array{Float64,2}}
-    weights::Array{Float64}
-    # kdtree::KDTree{Float64, Float64}  # Requires KDTree package
+struct Grid{T<:Real,U<:Number} <: AbstractGrid
+    points::Union{Array{T,1},Array{T,2}}
+    weights::Array{U,1}
+    kdtree::Union{KDTree,Nothing}
 
-    function Grid(points::Union{Array{Float64,1},Array{Float64,2}}, weights::Array{Float64,1})
+    function Grid(points::Union{Array{T,1},Array{T,2}}, weights::Array{U,1}, kdtree::Union{KDTree,Nothing}=nothing) where {T<:Real,U<:Number}
         if length(points) != length(weights)
-            throw("""Number of points and weights does not match.
-            Number of points: $(length(points)), 
-            Number of weights: $(length(weights)).
-            """)
+            error("Number of points and weights does not match.\nNumber of points: $(length(points)), Number of weights: $(length(weights)).")
         end
-        if ndims(weights) != 1
-            throw("Argument weights should be a 1-D array. 
-            weights.ndim = $(ndims(weights))")
-        end
-        if ndims(points) ∉ [1, 2]
-            throw("Argument points should be a 1D or 2D array. 
-            points.ndim = $(ndims(points))")
-        end
-        new(points, weights)
-    end
-
-    function Grid(; points::Union{Array{Float64,1},Array{Float64,2}}, weights::Array{Float64,1})
-        return Grid(points, weights)
+        new{T,U}(points, weights, kdtree)
     end
 end
 
-function Base.getindex(grid::Grid, index::Int)
+function Base.getindex(grid::Grid{T,U}, index::Integer) where {T<:Real,U<:Number}
     return grid.points[index], grid.weights[index]
 end
 
 
-function size(grid::Grid)
+function size(grid::Grid{T,U}) where {T<:Real,U<:Number}
     return length(grid.weights)
 end
 
-function integrate(grid::Grid, value_arrays...)
+function integrate(grid::Grid{T,U}, value_arrays...) where {T<:Real,U<:Number}
     if length(value_arrays) < 1
         throw(ArgumentError("No array is given to integrate."))
     end
-
+    grid_points_length = length(grid.points)
     for (i, array) in enumerate(value_arrays)
-        if !(typeof(array) <: Array{Float64,1})
-            throw(ArgumentError("Arg $i is not a Float64 Array."))
+        if !(typeof(array) <: Array{U,1})
+            throw(ArgumentError("Arg $i is not a Real Array."))
         end
-
-        if length(array) != length(grid.points)
-            throw(ArgumentError("Arg $i needs to be of size $(length(grid.points))."))
+        if length(array) != grid_points_length
+            throw(ArgumentError("Arg $i needs to be of size $grid_points_length."))
         end
     end
-
-    integrand = grid.weights .* reduce(.*, value_arrays)
-    result = sum(integrand)
-    return result
+    return sum(grid.weights .* reduce(.*, value_arrays))
 end
 
-function get_localgrid(grid::Grid, center::Union{Float64,Array{Float64,1}}, radius::Float64)
+function get_localgrid(grid::Grid{T,U}, center::Union{Real,Array{Real,1}}, radius::Real) where {T<:Real,U<:Number}
     # TODO
     return
 end
 
-function moments(grid::Grid, orders::Integer, centers::Array{Float64,2}, func_vals::Array{Float64,1})
+function moments(grid::Grid{T,U}, orders::Integer, centers::Array{Real,2}, func_vals::Array{Number,1}) where {T<:Real,U<:Number}
     # TODO
     return
 end
