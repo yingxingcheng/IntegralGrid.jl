@@ -282,6 +282,29 @@ _alvarez = [
 ]
 
 function get_cov_radii(atnums, type="bragg")
+    raw"""Get the covalent radii for given atomic number(s).
+
+    Parameters
+    ----------
+    atnums : int or np.ndarray
+        atomic number of interested
+    type : str, default to bragg
+        types of covalent radii for elements.
+        "bragg": Bragg-Slater empirically measured covalent radii
+        "cambridge": Covalent radii from analysis of the Cambridge Database"
+        "alvarez": Covalent radii from https://doi.org/10.1039/B801115J
+
+    Returns
+    -------
+    np.ndarray
+        covalent radii of desired atom(s)
+
+    Raises
+    ------
+    ValueError
+        Invalid covalent type, or input atomic number is 0
+    """
+
     if typeof(atnums) <: Integer
         atnums = [atnums]
     end
@@ -304,23 +327,57 @@ function generate_real_spherical_harmonics(l_max, theta, phi)
     raw"""
     Compute the real spherical harmonics recursively up to a maximum angular degree l.
 
+    .. math::
+        Y_l^m(\theta, \phi) = \frac{(2l + 1) (l - m)!}{4\pi (l + m)!} f(m, \theta)
+        P_l^m(\cos(\phi)),
+
+    where :math:`l` is the angular degree, :math:`m` is the order and
+    :math:`f(m, \theta) = \sqrt{2} \cos(m \theta)` when :math:`m>0` otherwise
+    :math:`f(m, \theta) = \sqrt{2} \sin(m\theta)`
+    when :math:`m<0`, and equal to one when :math:`m= 0`.  :math:`P_l^m` is the associated
+    Legendre polynomial without the Conway phase factor.
+    The angle :math:`\theta \in [0, 2\pi]` is the azimuthal angle and :math:`\phi \in [0, \pi]`
+    is the polar angle.
+
     Parameters
     ----------
-    l_max : Int
+    l_max : int
         Largest angular degree of the spherical harmonics.
-    theta : Array{Float64}
+    theta : np.ndarray(N,)
         Azimuthal angle :math:`\theta \in [0, 2\pi]` that are being evaluated on.
         If this angle is outside of bounds, then periodicity is used.
-    phi : Array{Float64}
+    phi : np.ndarray(N,)
         Polar angle :math:`\phi \in [0, \pi]` that are being evaluated on.
         If this angle is outside of bounds, then periodicity is used.
 
     Returns
     -------
-    Array{Float64,2}
+    ndarray((l_max + 1)**2, N)
         Value of real spherical harmonics of all orders :math:`m`,and degree
         :math:`l` spherical harmonics. For each degree :math:`l`, the orders :math:`m` are
         in Horton 2 order, i.e. :math:`m=0, 1, -1, 2, -2, \cdots, l, -l`.
+
+    Notes
+    -----
+    - The associated Legendre polynomials are computed using the forward recursion:
+      :math:`P_l^m(\phi) = \frac{2l + 1}{l - m + 1}\cos(\phi) P_{l-1}^m(x) -
+      \frac{(l + m)}{l - m + 1} P_{l-1}^m(x)`, and
+      :math:`P_l^l(\phi) = (2l + 1) \sin(\phi) P_{l-1}^{l-1}(\phi)`.
+    - For higher maximum degree :math:`l_{max} > 1900` with double precision the computation
+      of spherical harmonic will underflow within the range
+      :math:`20^\circ \leq \phi \leq 160^\circ`.  This code does not implement the
+      modified recursion formulas in [2] and instead opts for higher precision defined
+      by the computer system and np.longdouble.
+    - The mapping from :math:`(l, m)` to the correct row index in the spherical harmonic array is
+      given by :math:`(l + 1)^2 + 2 * m - 1` if :math:`m > 0`, else it is :math:`(l+1)^2 + 2 |m|`.
+
+    References
+    ----------
+    .. [1] Colombo, Oscar L. Numerical methods for harmonic analysis on the sphere.
+       Ohio State Univ Columbus Dept of Geodetic Science And Surveying, 1981.
+    .. [2] Holmes, Simon A., and Will E. Featherstone. "A unified approach to the Clenshaw
+       summation and the recursive computation of very high degree and order normalised
+       associated Legendre functions." Journal of Geodesy 76.5 (2002): 279-299.
 
     """
 

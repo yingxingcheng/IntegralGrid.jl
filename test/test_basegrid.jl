@@ -26,6 +26,25 @@ function test_integrate(grid)
 
 end
 
+function test_getitem(grid, _ref_points, _ref_weights)
+    # test index
+    grid_index = grid[10]
+    ref_grid = Grid(_ref_points[10:10], _ref_weights[10:10])
+    @test all(isapprox.(grid_index._points, ref_grid._points))
+    @test all(isapprox.(grid_index._weights, ref_grid._weights))
+    @test grid_index isa Grid
+    # test slice
+    ref_grid_slice = Grid(_ref_points[1:11], _ref_weights[1:11])
+    grid_slice = grid[1:11]
+    @test all(isapprox.(grid_slice._points, ref_grid_slice._points))
+    @test all(isapprox.(grid_slice._weights, ref_grid_slice._weights))
+    @test grid_slice isa Grid
+    a = [1, 3, 5]
+    ref_smt_index = grid[a]
+    @test all(isapprox.(ref_smt_index._points, _ref_points[a]))
+    @test all(isapprox.(ref_smt_index._weights, _ref_weights[a]))
+end
+
 @testset "BaseGrid.jl" begin
     # Test setup function
     _ref_points = collect(-1:0.1:1)
@@ -34,5 +53,6 @@ end
     test_init(grid, _ref_points, _ref_weights)
     test_init_diff_inputs()
     test_integrate(grid)
+    test_getitem(grid, _ref_points, _ref_weights)
 
 end
