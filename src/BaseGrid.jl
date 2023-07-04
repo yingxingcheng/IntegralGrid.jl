@@ -2,7 +2,7 @@ module BaseGrid
 
 using LinearAlgebra, NearestNeighbors, NPZ
 
-export AbstractGrid, Grid, get_points, get_weights, getindex, integrate, moments, save
+export AbstractGrid, Grid, get_points, get_weights, getindex, integrate, moments, save, LocalGrid
 
 abstract type AbstractGrid end
 
@@ -20,7 +20,7 @@ struct Grid{T<:Real,U<:Number} <: AbstractGrid
         kdtree::Union{KDTree,Nothing}=nothing
     ) where {T<:Real,U<:Number}
         length(points) == length(weights) || error("Number of points and weights does not match.\nNumber of points: $(length(points)), Number of weights: $(length(weights)).")
-        new{T,U}(points, weights, kdtree)
+        new(points, weights, kdtree)
     end
 end
 
@@ -32,7 +32,35 @@ function Grid(
     Grid{T,U}(points, weights, kdtree)
 end
 
+struct LocalGrid{T<:Real,U<:Number} <: AbstractGrid
+    _points::Union{AbstractArray{T,1},AbstractArray{T,2}}
+    _weights::AbstractArray{U,1}
+    center::Union{Real,AbstractArray{T,1}}
+    indices::Union{AbstractArray{T,1},Nothing}
 
+    function LocalGrid{T,U}(
+        points::Union{AbstractArray{T,1},AbstractArray{T,2}},
+        weights::AbstractArray{U,1},
+        center::Union{Real,AbstractArray{T}},
+        indices::Union{AbstractArray{T},Nothing}=nothing
+    ) where {T<:Real,U<:Number}
+        length(points) == length(weights) || error("Number of points and weights does not match.\nNumber of points: $(length(points)), Number of weights: $(length(weights)).")
+        new(points, weights, center, indices)
+    end
+end
+
+function LocalGrid(
+    points::Union{AbstractArray{T,1},AbstractArray{T,2}},
+    weights::AbstractArray{U,1},
+    center::Union{Real,AbstractArray{T,1}},
+    indices::Union{AbstractArray{T,1},Nothing}=nothing,
+) where {T<:Real,U<:Number}
+    LocalGrid{T,U}(points, weights, center, indices)
+end
+
+# 
+# Methods 
+# 
 get_points(grid::AbstractGrid) = grid._points
 get_weights(grid::AbstractGrid) = grid._weights
 Base.length(grid::AbstractGrid) = length(get_weights(grid))

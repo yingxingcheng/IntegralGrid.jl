@@ -45,6 +45,14 @@ function test_getitem(grid, _ref_points, _ref_weights)
     @test all(isapprox.(ref_smt_index._weights, _ref_weights[a]))
 end
 
+function test_localgird()
+    local_grid = LocalGrid([1, 2, 3], [1, 3, 4], 1)
+    @test get_points(local_grid) == [1, 2, 3]
+    @test get_weights(local_grid) == [1, 3, 4]
+    @test local_grid.center == 1
+    @test isnothing(local_grid.indices) == true
+end
+
 @testset "BaseGrid.jl" begin
     # Test setup function
     _ref_points = collect(-1:0.1:1)
@@ -54,5 +62,5 @@ end
     test_init_diff_inputs()
     test_integrate(grid)
     test_getitem(grid, _ref_points, _ref_weights)
-
+    test_localgird()
 end
