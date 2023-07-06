@@ -4,8 +4,8 @@ using Test
 function test_init(grid, ref_points, ref_weights)
     @test isa(grid, Grid)
     @test isapprox(get_points(grid), ref_points, atol=1e-7)
-    @test isapprox(get_weights(grid), ref_weights)
-    @test size(get_weights(grid)) == size(ref_weights)
+    @test isapprox(grid.weights, ref_weights)
+    @test size(grid.weights) == size(ref_weights)
 end
 
 function test_init_diff_inputs()
@@ -31,24 +31,24 @@ function test_getitem(grid, _ref_points, _ref_weights)
     grid_index = grid[10]
     ref_grid = Grid(_ref_points[10:10], _ref_weights[10:10])
     @test all(isapprox.(grid_index._points, ref_grid._points))
-    @test all(isapprox.(grid_index._weights, ref_grid._weights))
+    @test all(isapprox.(grid_index.weights, ref_grid.weights))
     @test grid_index isa Grid
     # test slice
     ref_grid_slice = Grid(_ref_points[1:11], _ref_weights[1:11])
     grid_slice = grid[1:11]
     @test all(isapprox.(grid_slice._points, ref_grid_slice._points))
-    @test all(isapprox.(grid_slice._weights, ref_grid_slice._weights))
+    @test all(isapprox.(grid_slice.weights, ref_grid_slice.weights))
     @test grid_slice isa Grid
     a = [1, 3, 5]
     ref_smt_index = grid[a]
     @test all(isapprox.(ref_smt_index._points, _ref_points[a]))
-    @test all(isapprox.(ref_smt_index._weights, _ref_weights[a]))
+    @test all(isapprox.(ref_smt_index.weights, _ref_weights[a]))
 end
 
 function test_localgird()
     local_grid = LocalGrid([1, 2, 3], [1, 3, 4], 1)
     @test get_points(local_grid) == [1, 2, 3]
-    @test get_weights(local_grid) == [1, 3, 4]
+    @test local_grid.weights == [1, 3, 4]
     @test local_grid.center == 1
     @test isnothing(local_grid.indices) == true
 end

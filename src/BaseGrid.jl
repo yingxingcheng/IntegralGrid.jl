@@ -2,78 +2,82 @@ module BaseGrid
 
 using LinearAlgebra, NearestNeighbors, NPZ
 
-export AbstractGrid, Grid, get_points, get_weights, getindex, integrate, moments, save, LocalGrid
+export AbstractGrid, Grid, get_points, getindex, integrate, moments, save, LocalGrid
 
 abstract type AbstractGrid end
 
 """
 Basic Grid struct for grid information storage.
 """
-struct Grid{T<:Real,U<:Number} <: AbstractGrid
-    _points::Union{AbstractArray{T,1},AbstractArray{T,2}}
-    _weights::AbstractArray{U,1}
-    _kdtree::Union{KDTree,Nothing}
+struct Grid <: AbstractGrid
+    _points::VecOrMat{<:Real}
+    weights::Vector{<:Number}
+    kdtree::Union{KDTree,Nothing}
 
-    function Grid{T,U}(
-        points::Union{AbstractArray{T,1},AbstractArray{T,2}},
-        weights::AbstractArray{U,1},
-        kdtree::Union{KDTree,Nothing}=nothing
-    ) where {T<:Real,U<:Number}
-        length(points) == length(weights) || error("Number of points and weights does not match.\nNumber of points: $(length(points)), Number of weights: $(length(weights)).")
+    function Grid(points::VecOrMat{<:Real}, weights::Vector{<:Number}, kdtree::Union{KDTree,Nothing}=nothing)
+        check_input(points, weights)
         new(points, weights, kdtree)
     end
 end
 
-function Grid(
-    points::Union{AbstractArray{T,1},AbstractArray{T,2}},
-    weights::AbstractArray{U,1},
-    kdtree::Union{KDTree,Nothing}=nothing
-) where {T<:Real,U<:Number}
-    Grid{T,U}(points, weights, kdtree)
-end
 
-struct LocalGrid{T<:Real,U<:Number} <: AbstractGrid
-    _points::Union{AbstractArray{T,1},AbstractArray{T,2}}
-    _weights::AbstractArray{U,1}
-    center::Union{Real,AbstractArray{T,1}}
-    indices::Union{AbstractArray{T,1},Nothing}
+# -----------------------------------------------
+# Another implementation using Paramters T and U
+# -----------------------------------------------
+# struct Grid{T<:Real,U<:Number} <: AbstractGrid
+#     _points::VecOrMat{T}
+#     weights::Vector{U}
+#     kdtree::Union{KDTree,Nothing}
+# 
+#     function Grid{T,U}(points::VecOrMat{T}, weights::Vector{U}, kdtree::Union{KDTree,Nothing}=nothing) where {T<:Real,U<:Number}
+#         check_input(points, weights)
+#         new{T,U}(points, weights, kdtree)
+#     end
+# end
+# 
+# Grid(points::VecOrMat{T}, weights::Vector{U}, kdtree::Union{KDTree,Nothing}=nothing) where {T<:Real,U<:Number} = Grid{T, U}(points, weights, kdtree)
 
-    function LocalGrid{T,U}(
-        points::Union{AbstractArray{T,1},AbstractArray{T,2}},
-        weights::AbstractArray{U,1},
-        center::Union{Real,AbstractArray{T}},
-        indices::Union{AbstractArray{T},Nothing}=nothing
-    ) where {T<:Real,U<:Number}
-        length(points) == length(weights) || error("Number of points and weights does not match.\nNumber of points: $(length(points)), Number of weights: $(length(weights)).")
-        new(points, weights, center, indices)
+
+struct LocalGrid <: AbstractGrid
+    _points::VecOrMat{<:Real}
+    weights::Vector{<:Number}
+    kdtree::Union{KDTree,Nothing}
+    center::Union{<:Real,Vector{<:Real}}
+    indices::Union{Vector{<:Real},Nothing}
+
+    function LocalGrid(
+        points::VecOrMat{<:Real},
+        weights::Vector{<:Number},
+        center::Union{<:Real,Vector{<:Real}},
+        indices::Union{Vector{<:Real},Nothing}=nothing
+    )
+        check_input(points, weights)
+        new(points, weights, nothing, center, indices)
     end
 end
 
-function LocalGrid(
-    points::Union{AbstractArray{T,1},AbstractArray{T,2}},
-    weights::AbstractArray{U,1},
-    center::Union{Real,AbstractArray{T,1}},
-    indices::Union{AbstractArray{T,1},Nothing}=nothing,
-) where {T<:Real,U<:Number}
-    LocalGrid{T,U}(points, weights, center, indices)
+
+function check_input(points::VecOrMat{<:Real}, weights::Vector{<:Number})
+    sizep, sizew = size(points, 1), size(weights, 1)
+    if sizep != sizew
+        error("Number of points and weights does not match.\n
+            Number of points: $(sizep), Number of weights: $(sizew).
+        ")
+    end
 end
 
-# 
-# Methods 
-# 
 get_points(grid::AbstractGrid) = grid._points
-get_weights(grid::AbstractGrid) = grid._weights
-Base.length(grid::AbstractGrid) = length(get_weights(grid))
+Base.length(grid::AbstractGrid) = length(grid.weights)
 
-function Base.getindex(grid::T, index::Union{Int,AbstractRange{Int},AbstractArray{Int}}) where {T<:AbstractGrid}
+function Base.getindex(grid::T, index) where {T<:AbstractGrid}
     if typeof(index) <: Int
-        return T(get_points(grid)[index:index], get_weights(grid)[index:index])
+        return T(get_points(grid)[index:index], grid.weights[index:index])
     else
-        return T(get_points(grid)[index], get_weights(grid)[index])
+        return T(get_points(grid)[index], grid.weights[index])
     end
 end
 
-function integrate(grid::T, value_arrays::AbstractArray{U,1}...) where {T<:AbstractGrid,U<:Number}
+function integrate(grid::AbstractGrid, value_arrays::AbstractVector...)
     if length(value_arrays) < 1
         throw(ArgumentError("No array is given to integrate."))
     end
@@ -83,22 +87,22 @@ function integrate(grid::T, value_arrays::AbstractArray{U,1}...) where {T<:Abstr
             throw(ArgumentError("Arg $i needs to be of size $grid_points_length."))
         end
     end
-    return sum(get_weights(grid) .* reduce(.*, value_arrays))
+    return sum(grid.weights .* reduce(.*, value_arrays))
 end
 
-function get_localgrid(grid::Grid, center::Union{Real,Array{Real,1}}, radius::Real)
+function get_localgrid(grid::AbstractGrid, center::Union{Real,AbstractVector}, radius::Real)
     # TODO
     return
 end
 
 function moments(
-    grid::T,
+    grid::AbstractGrid,
     orders,
     centers,
     func_vals,
-    type_mom::String="cartesian",
+    type_mom::AbstractString="cartesian",
     return_orders::Bool=false
-) where {T<:AbstractGrid}
+)
     if ndims(func_vals) > 1
         throw(ArgumentError("func_vals should have dimension one."))
     end
@@ -172,8 +176,8 @@ function moments(
 end
 
 
-function save(grid::T, filename::AbstractString) where {T<:AbstractGrid}
-    save_dict = Dict("points" => get_points(grid), "weights" => get_weights(grid))
+function save(grid::AbstractGrid, filename::AbstractString)
+    save_dict = Dict("points" => get_points(grid), "weights" => grid.weights)
     npzwrite(filename, save_dict)
 end
 
