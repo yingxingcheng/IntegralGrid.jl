@@ -1,4 +1,4 @@
-test_files = ["test_basegrid.jl", "test_atomgrid.jl", "test_utils.jl"]
+test_files = ["test_basegrid.jl", "test_atomgrid.jl", "test_utils.jl","test_onedgrid.jl"]
 
 println("Running tests:")
 for t in test_files

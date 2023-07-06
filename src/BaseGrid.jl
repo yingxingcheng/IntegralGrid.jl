@@ -2,9 +2,13 @@ module BaseGrid
 
 using LinearAlgebra, NearestNeighbors, NPZ
 
-export AbstractGrid, Grid, getindex, integrate, moments, save, LocalGrid, OneDGrid, get_localgrid
+export AbstractGrid, AbstractOneDGrid, AbstractLocalGrid
+export Grid, LocalGrid, OneDGrid
+export getindex, integrate, moments, save, get_localgrid
 
 abstract type AbstractGrid end
+abstract type AbstractLocalGrid <: AbstractGrid end
+abstract type AbstractOneDGrid <: AbstractGrid end
 
 """
 Basic Grid struct for grid information storage.
@@ -14,7 +18,10 @@ mutable struct Grid <: AbstractGrid
     weights::Vector{<:Number}
     kdtree::Union{KDTree,Nothing}
 
-    function Grid(points::VecOrMat{<:Real}, weights::Vector{<:Number}, kdtree::Union{KDTree,Nothing}=nothing)
+    function Grid(
+        points::VecOrMat{<:Real},
+        weights::Vector{<:Number},
+        kdtree::Union{KDTree,Nothing}=nothing)
         check_input(points, weights)
         new(points, weights, kdtree)
     end
@@ -38,7 +45,7 @@ end
 # Grid(points::VecOrMat{T}, weights::Vector{U}, kdtree::Union{KDTree,Nothing}=nothing) where {T<:Real,U<:Number} = Grid{T, U}(points, weights, kdtree)
 
 
-mutable struct LocalGrid <: AbstractGrid
+mutable struct LocalGrid <: AbstractLocalGrid
     _points::VecOrMat{<:Real}
     weights::Vector{<:Number}
     kdtree::Union{KDTree,Nothing}
@@ -62,29 +69,33 @@ mutable struct OneDGrid <: AbstractGrid
     weights::Vector{<:Number}
     domain::Union{Nothing,Tuple{<:Real,<:Real}}
 
-    function OneDGrid(points::Vector{<:Real}, weights::Vector{<:Real}, domain::Union{Nothing,Tuple{<:Real,<:Real}}=nothing)
-        check_input(points, weights)
-        if !isnothing(domain)
-            if length(domain) != 2 || domain[1] > domain[2]
-                throw(ArgumentError("domain should be an ascending tuple of length 2. domain=$domain"))
-            end
-            min_p = minimum(points)
-            if domain[1] - 1e-7 > min_p
-                throw(ArgumentError("point coordinates should not be below domain! $min_p < $(domain[1])"))
-            end
-            max_p = maximum(points)
-            if domain[2] + 1e-7 < max_p
-                throw(ArgumentError("point coordinates should not be above domain! $(domain[2]) < $max_p"))
-            end
-        end
+    function OneDGrid(
+        points::Vector{<:Real},
+        weights::Vector{<:Real},
+        domain::Union{Nothing,Tuple{<:Real,<:Real}}=nothing)
+        check_input(points, weights, domain=domain)
         new(points, weights, domain)
     end
 end
 
-function check_input(points::VecOrMat{<:Real}, weights::Vector{<:Number})
+function check_input(points::VecOrMat{<:Real}, weights::Vector{<:Number}; domain::Union{Nothing,Tuple{<:Real,<:Real}}=nothing)
     sizep, sizew = size(points, 1), size(weights, 1)
     if sizep != sizew
         throw(ArgumentError("Number of points and weights does not match.\n"))
+    end
+
+    if !isnothing(domain)
+        if length(domain) != 2 || domain[1] > domain[2]
+            throw(ArgumentError("domain should be an ascending tuple of length 2. domain=$domain"))
+        end
+        min_p = minimum(points)
+        if domain[1] - 1e-7 > min_p
+            throw(ArgumentError("point coordinates should not be below domain! $min_p < $(domain[1])"))
+        end
+        max_p = maximum(points)
+        if domain[2] + 1e-7 < max_p
+            throw(ArgumentError("point coordinates should not be above domain! $(domain[2]) < $max_p"))
+        end
     end
 end
 
@@ -119,7 +130,7 @@ end
 #     end
 # end
 
-function Base.getindex(grid::OneDGrid, index)
+function Base.getindex(grid::AbstractOneDGrid, index)
     if typeof(index) <: Int
         OneDGrid([grid.points[index]], [grid.weights[index]], grid.domain)
     else
@@ -276,7 +287,7 @@ function save(grid::AbstractGrid, filename::String)
     npzwrite(filename, save_dict)
 end
 
-function save(grid::LocalGrid, filename::String)
+function save(grid::AbstractLocalGrid, filename::String)
     save_dict = Dict("points" => points(grid), "weights" => grid.weights,
         "center" => grid.center, "indices" => grid.indices)
     npzwrite(filename, save_dict)
