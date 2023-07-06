@@ -2,14 +2,14 @@ module BaseGrid
 
 using LinearAlgebra, NearestNeighbors, NPZ
 
-export AbstractGrid, Grid, getindex, integrate, moments, save, LocalGrid, OneDGrid
+export AbstractGrid, Grid, getindex, integrate, moments, save, LocalGrid, OneDGrid, get_localgrid
 
 abstract type AbstractGrid end
 
 """
 Basic Grid struct for grid information storage.
 """
-struct Grid <: AbstractGrid
+mutable struct Grid <: AbstractGrid
     _points::VecOrMat{<:Real}
     weights::Vector{<:Number}
     kdtree::Union{KDTree,Nothing}
@@ -38,7 +38,7 @@ end
 # Grid(points::VecOrMat{T}, weights::Vector{U}, kdtree::Union{KDTree,Nothing}=nothing) where {T<:Real,U<:Number} = Grid{T, U}(points, weights, kdtree)
 
 
-struct LocalGrid <: AbstractGrid
+mutable struct LocalGrid <: AbstractGrid
     _points::VecOrMat{<:Real}
     weights::Vector{<:Number}
     kdtree::Union{KDTree,Nothing}
@@ -57,7 +57,7 @@ struct LocalGrid <: AbstractGrid
 end
 
 
-struct OneDGrid <: AbstractGrid
+mutable struct OneDGrid <: AbstractGrid
     _points::Vector{<:Real}
     weights::Vector{<:Number}
     domain::Union{Nothing,Tuple{<:Real,<:Real}}
@@ -146,10 +146,49 @@ function integrate(grid::AbstractGrid, value_arrays::Vector{<:Number}...)
     return sum(grid.weights .* reduce(.*, value_arrays))
 end
 
-function get_localgrid(grid::AbstractGrid, center::Union{Real,Vector}, radius::Real)
-    # TODO
-    return
+"""
+    get_localgrid(center::Union{Float64, Vector{Float64}}, radius::Float64) -> LocalGrid
+
+Create a grid containing points within the given `radius` of `center`.
+
+# Arguments
+- `center`: Cartesian coordinates of the center of the local grid.
+- `radius`: Radius of sphere around the center. When equal to `Inf`, the
+  local grid coincides with the whole grid, which can be useful for debugging.
+
+# Returns
+- `LocalGrid`: Instance of `LocalGrid`.
+"""
+function get_localgrid(grid::AbstractGrid, center::Union{<:Real,Vector{<:Real}}, radius::T) where {T<:Real}
+    if typeof(center) <: Real
+        center = [center]
+    end
+    sizep = ndims(grid._points) == 2 ? 1 : size(grid._points, 2)
+    if size(center, 1) != sizep
+        throw(ArgumentError(
+            "Argument center has the wrong shape \n" *
+            "center.shape: $(size(center)), points.shape: $(sizep)"
+        ))
+    end
+    if radius < 0
+        throw(ArgumentError("Negative radius: $radius"))
+    end
+    if !(isfinite(radius) || radius == Inf)
+        throw(ArgumentError("Invalid radius: $radius"))
+    end
+    if radius == Inf
+        return LocalGrid(grid._points, grid.weights, center, collect(1:grid.size))
+    else
+        # When points.ndim == 1, we have to reshape a few things to make the input compatible with KDTree
+        _points = ndims(grid._points) == 1 ? reshape(grid._points, (:, 1)) : grid._points
+        if grid.kdtree === nothing
+            grid.kdtree = KDTree(_points')
+        end
+        indices = inrange(grid.kdtree, reshape(center, (1, :)), radius, false)[1]
+        return LocalGrid(grid._points[indices], grid.weights[indices], center, indices)
+    end
 end
+
 
 function moments(
     grid::AbstractGrid,

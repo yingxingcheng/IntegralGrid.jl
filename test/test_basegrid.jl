@@ -26,6 +26,37 @@ function test_integrate(grid)
 
 end
 
+function test_get_localgrid_radius_inf(grid)
+    """Test the creation of the local grid with an infinite radius."""
+    localgrid = get_localgrid(grid, grid.points[4], Inf)
+    # Just make sure we are testing with a real local grid
+    @test localgrid.size == grid.size
+    @test all(isapprox.(localgrid.points, grid.points))
+    @test all(isapprox.(localgrid.weights, grid.weights))
+    @test all(isapprox.(localgrid.indices, 1:grid.size))
+end
+
+function test_get_localgrid(grid, _ref_points, _ref_weights)
+    """Test the creation of the local grid with a normal radius."""
+    center = grid.points[4]
+    radius = 0.2
+    localgrid = get_localgrid(grid, center, radius)
+    # Just make sure we are testing with an actual local grid with less (but
+    # not zero) points.
+    @test localgrid.size > 0
+    @test localgrid.size < grid.size
+    # Test that the local grid contains the correct results.
+    @test ndims(localgrid.points) == ndims(grid.points)
+    @test ndims(localgrid.weights) == ndims(grid.weights)
+    @test all(isapprox.(localgrid.points, grid.points[localgrid.indices]))
+    @test all(isapprox.(localgrid.weights, grid.weights[localgrid.indices]))
+    if ndims(_ref_points) == 2
+        @test all(norm.(localgrid.points .- center, dims=2) .<= radius)
+    else
+        @test all(abs.(localgrid.points .- center) .<= radius)
+    end
+end
+
 function test_getitem(grid, _ref_points, _ref_weights)
     # test index
     grid_index = grid[10]
@@ -67,16 +98,16 @@ function test_onedgrid()
             points = collect(0:19)
             weights = collect(0:19) .* 0.1
             grid = OneDGrid(points, weights)
-            
+
             @test grid.size == 20
             @test grid.domain === nothing
-            
+
             subgrid = grid[1]
             @test subgrid.size == 1
             @test isapprox(subgrid.points, [points[1]])
             @test isapprox(subgrid.weights, [weights[1]])
             @test subgrid.domain === nothing
-            
+
             subgrid = grid[4:7]
             @test subgrid.size == 4
             @test isapprox(subgrid.points, points[4:7])
@@ -95,6 +126,8 @@ end
     test_init_diff_inputs()
     test_integrate(grid)
     test_getitem(grid, _ref_points, _ref_weights)
+    test_get_localgrid_radius_inf(grid)
+    test_get_localgrid(grid, _ref_points, _ref_weights)
     test_localgird()
     test_onedgrid()
 end
