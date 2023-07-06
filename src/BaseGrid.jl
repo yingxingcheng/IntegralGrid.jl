@@ -2,7 +2,7 @@ module BaseGrid
 
 using LinearAlgebra, NearestNeighbors, NPZ
 
-export AbstractGrid, Grid, get_points, getindex, integrate, moments, save, LocalGrid
+export AbstractGrid, Grid, getindex, integrate, moments, save, LocalGrid, OneDGrid
 
 abstract type AbstractGrid end
 
@@ -57,31 +57,87 @@ struct LocalGrid <: AbstractGrid
 end
 
 
+struct OneDGrid <: AbstractGrid
+    _points::Vector{<:Real}
+    weights::Vector{<:Number}
+    domain::Union{Nothing,Tuple{<:Real,<:Real}}
+
+    function OneDGrid(points::Vector{<:Real}, weights::Vector{<:Real}, domain::Union{Nothing,Tuple{<:Real,<:Real}}=nothing)
+        check_input(points, weights)
+        if !isnothing(domain)
+            if length(domain) != 2 || domain[1] > domain[2]
+                throw(ArgumentError("domain should be an ascending tuple of length 2. domain=$domain"))
+            end
+            min_p = minimum(points)
+            if domain[1] - 1e-7 > min_p
+                throw(ArgumentError("point coordinates should not be below domain! $min_p < $(domain[1])"))
+            end
+            max_p = maximum(points)
+            if domain[2] + 1e-7 < max_p
+                throw(ArgumentError("point coordinates should not be above domain! $(domain[2]) < $max_p"))
+            end
+        end
+        new(points, weights, domain)
+    end
+end
+
 function check_input(points::VecOrMat{<:Real}, weights::Vector{<:Number})
     sizep, sizew = size(points, 1), size(weights, 1)
     if sizep != sizew
-        error("Number of points and weights does not match.\n
-            Number of points: $(sizep), Number of weights: $(sizew).
-        ")
+        throw(ArgumentError("Number of points and weights does not match.\n"))
     end
 end
 
-get_points(grid::AbstractGrid) = grid._points
-Base.length(grid::AbstractGrid) = length(grid.weights)
+function Base.getproperty(grid::AbstractGrid, prop::Symbol)
+    if prop == :points
+        return grid._points
+    elseif prop == :size
+        return size(grid.weights, 1)
+    else
+        return getfield(grid, prop)
+    end
+end
 
+# Base.length(grid::AbstractGrid) = length(grid.weights)
+
+# which one is better?
+# Method 1
 function Base.getindex(grid::T, index) where {T<:AbstractGrid}
     if typeof(index) <: Int
-        return T(get_points(grid)[index:index], grid.weights[index:index])
+        return T(grid.points[index:index], grid.weights[index:index])
     else
-        return T(get_points(grid)[index], grid.weights[index])
+        return T(grid.points[index], grid.weights[index])
     end
 end
 
-function integrate(grid::AbstractGrid, value_arrays::AbstractVector...)
+# Method 2
+# function Base.getindex(grid::AbstractGrid, index)
+#     if typeof(index) <: Int
+#         return typeof(grid)(grid.points[index:index], grid.weights[index:index])
+#     else
+#         return typeof(grid)(grid.points[index], grid.weights[index])
+#     end
+# end
+
+function Base.getindex(grid::OneDGrid, index)
+    if typeof(index) <: Int
+        OneDGrid([grid.points[index]], [grid.weights[index]], grid.domain)
+    else
+        OneDGrid(grid.points[index], grid.weights[index], grid.domain)
+    end
+end
+
+
+# Here uses Vector{<:Number} instead of Vector{<:Number}, 
+# becuase ! (Vector{Float64} <: Vector{Number}), i.e., invariant
+"""
+Calculate integrate on the grid.
+"""
+function integrate(grid::AbstractGrid, value_arrays::Vector{<:Number}...)
     if length(value_arrays) < 1
         throw(ArgumentError("No array is given to integrate."))
     end
-    grid_points_length = length(get_points(grid))
+    grid_points_length = length(grid.points)
     for (i, array) in enumerate(value_arrays)
         if length(array) != grid_points_length
             throw(ArgumentError("Arg $i needs to be of size $grid_points_length."))
@@ -90,7 +146,7 @@ function integrate(grid::AbstractGrid, value_arrays::AbstractVector...)
     return sum(grid.weights .* reduce(.*, value_arrays))
 end
 
-function get_localgrid(grid::AbstractGrid, center::Union{Real,AbstractVector}, radius::Real)
+function get_localgrid(grid::AbstractGrid, center::Union{Real,Vector}, radius::Real)
     # TODO
     return
 end
@@ -100,7 +156,7 @@ function moments(
     orders,
     centers,
     func_vals,
-    type_mom::AbstractString="cartesian",
+    type_mom::String="cartesian",
     return_orders::Bool=false
 )
     if ndims(func_vals) > 1
@@ -109,10 +165,10 @@ function moments(
     if ndims(centers) != 2
         throw(ArgumentError("centers should have dimension one or two."))
     end
-    if length(get_points(grid)) != length(centers)
+    if length(grid.points) != length(centers)
         throw(ArgumentError("The dimension of the grid should match the dimension of the centers."))
     end
-    if length(func_vals) != legnth(get_points(grid))
+    if length(func_vals) != legnth(grid.points)
         throw(ArgumentError("The length of function values should match the number of points in the grid."))
     end
     if type_mom == "pure-radial" && orders == 0
@@ -128,7 +184,7 @@ function moments(
         error("Orders should be either an integer, list, or numpy array.")
     end
 
-    dim = shape(get_points(grid))[1]
+    dim = shape(points(grid))[1]
     all_orders = generate_orders_horton_order(orders[1], type_mom, dim)
     for l_ord in orders[2:end]
         all_orders = vcat(all_orders, generate_orders_horton_order(l_ord, type_mom, dim))
@@ -136,12 +192,12 @@ function moments(
 
     integrals = []
     for center in eachrow(centers)
-        centered_pts = self.points .- center
+        centered_pts = grid.points .- center
 
         if type_mom == "cartesian"
             cent_pts_with_order = centered_pts .^ all_orders'
             cent_pts_with_order = prod(cent_pts_with_order, dims=2)
-            integral = sum(cent_pts_with_order .* func_vals .* self.weights, dims=1)
+            integral = sum(cent_pts_with_order .* func_vals .* grid.weights, dims=1)
         elseif type_mom == "radial" || type_mom == "pure" || type_mom == "pure-radial"
             cent_pts_with_order = vec(norm.(centered_pts, dims=2))
 
@@ -150,18 +206,18 @@ function moments(
                 solid_harm = solid_harmonics(orders[end], sph_pts)
 
                 if type_mom == "pure"
-                    integral = sum(solid_harm .* func_vals .* self.weights, dims=1)
+                    integral = sum(solid_harm .* func_vals .* grid.weights, dims=1)
                 elseif type_mom == "pure-radial"
                     n_princ, l_degrees, m_orders = eachcol(all_orders)
                     indices = l_degrees .^ 2
                     indices[m_orders.>0] .+= 2 .* m_orders[m_orders.>0] .- 1
                     indices[m_orders.<=0] .+= 2 .* abs.(m_orders[m_orders.<=0])
                     cent_pts_with_order = cent_pts_with_order .^ n_princ'
-                    integral = sum(cent_pts_with_order .* solid_harm[indices] .* func_vals .* self.weights, dims=1)
+                    integral = sum(cent_pts_with_order .* solid_harm[indices] .* func_vals .* grid.weights, dims=1)
                 end
             elseif type_mom == "radial"
                 cent_pts_with_order = cent_pts_with_order .^ vec(all_orders)
-                integral = sum(cent_pts_with_order .* func_vals .* self.weights, dims=1)
+                integral = sum(cent_pts_with_order .* func_vals .* grid.weights, dims=1)
             end
         end
 
@@ -176,9 +232,16 @@ function moments(
 end
 
 
-function save(grid::AbstractGrid, filename::AbstractString)
-    save_dict = Dict("points" => get_points(grid), "weights" => grid.weights)
+function save(grid::AbstractGrid, filename::String)
+    save_dict = Dict("points" => points(grid), "weights" => grid.weights)
     npzwrite(filename, save_dict)
 end
+
+function save(grid::LocalGrid, filename::String)
+    save_dict = Dict("points" => points(grid), "weights" => grid.weights,
+        "center" => grid.center, "indices" => grid.indices)
+    npzwrite(filename, save_dict)
+end
+
 
 end # end of moudle

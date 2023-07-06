@@ -3,7 +3,7 @@ using Test
 
 function test_init(grid, ref_points, ref_weights)
     @test isa(grid, Grid)
-    @test isapprox(get_points(grid), ref_points, atol=1e-7)
+    @test isapprox(grid.points, ref_points, atol=1e-7)
     @test isapprox(grid.weights, ref_weights)
     @test size(grid.weights) == size(ref_weights)
 end
@@ -41,16 +41,49 @@ function test_getitem(grid, _ref_points, _ref_weights)
     @test grid_slice isa Grid
     a = [1, 3, 5]
     ref_smt_index = grid[a]
-    @test all(isapprox.(ref_smt_index._points, _ref_points[a]))
+    @test all(isapprox.(ref_smt_index.points, _ref_points[a]))
     @test all(isapprox.(ref_smt_index.weights, _ref_weights[a]))
 end
 
 function test_localgird()
     local_grid = LocalGrid([1, 2, 3], [1, 3, 4], 1)
-    @test get_points(local_grid) == [1, 2, 3]
+    @test local_grid.points == [1, 2, 3]
     @test local_grid.weights == [1, 3, 4]
     @test local_grid.center == 1
     @test isnothing(local_grid.indices) == true
+end
+
+function test_onedgrid()
+    @testset "TestOneDGrid" begin
+        arr_1d = collect(0:9)
+
+        @test_throws ArgumentError OneDGrid(arr_1d, arr_1d[1:end-1])
+        @test_throws ArgumentError OneDGrid(arr_1d, arr_1d, (0, 5))
+        @test_throws ArgumentError OneDGrid(arr_1d, arr_1d, (1, 5))
+        @test_throws ArgumentError OneDGrid(arr_1d, arr_1d, (1, 9))
+        @test_throws ArgumentError OneDGrid(arr_1d, arr_1d, (9, 0))
+
+        @testset "test_getitem" begin
+            points = collect(0:19)
+            weights = collect(0:19) .* 0.1
+            grid = OneDGrid(points, weights)
+            
+            @test grid.size == 20
+            @test grid.domain === nothing
+            
+            subgrid = grid[1]
+            @test subgrid.size == 1
+            @test isapprox(subgrid.points, [points[1]])
+            @test isapprox(subgrid.weights, [weights[1]])
+            @test subgrid.domain === nothing
+            
+            subgrid = grid[4:7]
+            @test subgrid.size == 4
+            @test isapprox(subgrid.points, points[4:7])
+            @test isapprox(subgrid.weights, weights[4:7])
+            @test subgrid.domain === nothing
+        end
+    end
 end
 
 @testset "BaseGrid.jl" begin
@@ -63,4 +96,5 @@ end
     test_integrate(grid)
     test_getitem(grid, _ref_points, _ref_weights)
     test_localgird()
+    test_onedgrid()
 end
