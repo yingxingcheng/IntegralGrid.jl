@@ -11,6 +11,7 @@ NPZ = "15e1cf62-19b3-5cfa-8e77-841668bca605"
 NearestNeighbors = "b8a86587-4115-5ab1-83bc-aa920d37bbce"
 Polynomials = "f27b6e38-b328-58d1-80ce-0feddd5e7a45"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+ReusePatterns = "a39b5e78-89b5-562b-97d8-70689129df0c"
 SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 SpecialPolynomials = "a25cea48-d430-424a-8ee7-0d3ad3742e9e"
 

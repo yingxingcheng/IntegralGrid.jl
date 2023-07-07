@@ -1,124 +1,98 @@
 module OnedGrid
 
-using IntegralGrid.BaseGrid: AbstractOneDGrid, check_input
+using IntegralGrid.BaseGrid
 using FastGaussQuadrature
 
-export GaussLaguerre, GaussLegendre
+export GaussLaguerre, GaussLegendre, GaussChebyshev, UniformInteger, GaussChebyshevType2
+export GaussChebyshevLobatto, Trapezoidal, RectangleRuleSineEndPoints
 
 
-raw"""
-    GaussLaguerre <: OneDGrid
-
-Gauss Laguerre integral quadrature class.
-
-The definition of generalized Gauss-Laguerre quadrature is:
-
-.. math::
-    \int_{0}^{\infty} x^\alpha e^{-x} f(x) dx \approx \sum_{i=1}^n w_i f(x_i),
-
-where :math:`\alpha > -1`.
-
-However, to integrate function :math:`g(x)` over :math:`[0, \infty)`, this is re-written as:
-
-.. math::
-    \int_{0}^{\infty} g(x)dx \approx
-    \sum_{i=1}^n \left(\frac{w_i}{x_i^\alpha e^{-x_i}}\right) g(x_i) = \sum_{i=1}^n w_i' g(x_i)
-"""
-struct GaussLaguerre <: AbstractOneDGrid
-    _points::Vector{<:Real}
-    weights::Vector{<:Number}
-    domain::Union{Nothing,Tuple{<:Real,<:Real}}
-
-    function GaussLaguerre(
-        points::Vector{<:Real},
-        weights::Vector{<:Real},
-        domain::Union{Nothing,Tuple{<:Real,<:Real}}=nothing)
-        check_input(points, weights, domain=domain)
-        new(points, weights, domain)
-    end
-end
-
-raw"""
-    GaussLaguerre(npoints::Integer, alpha::T = 0) where {T<:Real}
-
-Generate grid on :math:`[0, \infty)` based on generalized Gauss-Laguerre quadrature.
-
-# Arguments
-- `npoints::Integer`: Number of grid points.
-- `alpha<:Real=0`: Value of the parameter :math:`alpha` which must be larger than -1.
-
-# Returns
-- `::GaussLaguerre`: A 1-D grid instance containing points and weights.
-"""
-function GaussLaguerre(npoints::Integer, alpha::T=0) where {T<:Real}
+function GaussLaguerre(npoints::Int, alpha::T=0) where {T<:Real}
     if npoints <= 1
         throw(ArgumentError("Argument npoints must be an integer > 1, given $npoints"))
     end
     if alpha <= -1
         throw(ArgumentError("Argument alpha must be larger than -1, given $alpha"))
     end
-    # compute points and weights for Generalized Gauss-Laguerre quadrature
     points, weights = gausslaguerre(npoints, alpha)
     if any(isnan.(weights))
-        throw(ErrorException(
-            "Generation of the weights for Gauss-generalized Laguerre quadrature contains " *
-            "nans. This issue is related to the Julia package used."
-        ))
+        throw(RuntimeError("Generation of the weights for Gauss-generalized Laguerre quadrature contains nans. This issue is related to SciPy."))
     end
-    weights .*= exp.(points) .* (points .^ -alpha)
-    GaussLaguerre(points, weights, (0, Inf))
+    weights .= weights .* exp.(points) .* points .^ (-alpha)
+    return OneDGrid(points, weights, (0, Inf))
 end
 
-raw"""
-    GaussLegendre <: OneDGrid
-
-Gauss-Legendre integral quadrature class.
-
-The definition of Gauss-Legendre quadrature is:
-
-.. math::
-    \int_{-1}^{1} f(x) dx \approx \sum_{i=1}^n w_i f(x_i),
-
-where :math:`w_i` are the quadrature weights and :math:`x_i` are the
-roots of the nth Legendre polynomial.
-"""
-struct GaussLegendre <: AbstractOneDGrid
-    _points::Vector{<:Real}
-    weights::Vector{<:Real}
-    domain::Union{Nothing,Tuple{<:Real,<:Real}}
-
-    function GaussLegendre(
-        points::Vector{<:Real},
-        weights::Vector{<:Real},
-        domain::Union{Nothing,Tuple{<:Real,<:Real}}=nothing)
-        check_input(points, weights, domain=domain)
-        new(points, weights, domain)
-    end
-end
-
-raw"""
-    GaussLegendre(npoints::Integer)
-
-Generate grid on :math:`[-1, 1]` interval based on Gauss-Legendre quadrature.
-
-# Arguments
-- `npoints::Integer`: Number of grid points.
-
-# Returns
-- `::GaussLegendre`: A 1-D grid instance containing points and weights.
-
-# Notes
-- Only known to be accurate up to `npoints`=100 and may cause problems after
-that amount.
-"""
-function GaussLegendre(npoints::Integer)
+function GaussLegendre(npoints::Int)
     if npoints <= 1
         throw(ArgumentError("Argument npoints must be an integer > 1, given $npoints"))
     end
-    # compute points and weights for Gauss-Legendre quadrature
-    # according to numpy's leggauss, the accuracy is only known up to `npoints=100`.
     points, weights = gausslegendre(npoints)
-    GaussLegendre(points, weights, (-1, 1))
+    return OneDGrid(points, weights, (-1, 1))
+end
+
+function GaussChebyshev(npoints::Int)
+    if npoints <= 1
+        throw(ArgumentError("Argument npoints must be an integer > 1, given $npoints"))
+    end
+    points, weights = gausschebyshev(npoints, 1)
+    weights .= weights .* sqrt.(1 .- points .^ 2)
+    return OneDGrid(points, weights, (-1, 1))
+end
+
+function UniformInteger(npoints::Int)
+    if npoints <= 1
+        throw(ArgumentError("Argument npoints must be an integer > 1, given $npoints"))
+    end
+    points = collect(0:npoints-1)
+    weights = ones(npoints)
+    return OneDGrid(points, weights, (0, Inf))
+end
+
+function GaussChebyshevType2(npoints::Int)
+    if npoints < 1
+        throw(ArgumentError("Argument npoints must be an integer > 1, given $npoints"))
+    end
+    points, weights = gausschebyshev(npoints, 2)
+    weights .= weights ./ sqrt.(1 .- points .^ 2)
+    return OneDGrid(points, weights, (-1, 1))
+end
+
+function GaussChebyshevLobatto(npoints::Int)
+    if npoints <= 1
+        throw(ArgumentError("Argument npoints must be an integer > 1, given $npoints"))
+    end
+    points = cos.(range(0, stop=npoints - 1) * π / (npoints - 1))
+    points = reverse(points)
+    weights = π * sqrt.(1 .- points .^ 2) / (npoints - 1)
+    weights[1] /= 2
+    weights[npoints] /= 2
+    return OneDGrid(points, weights, (-1, 1))
+end
+
+function Trapezoidal(npoints::Int)
+    @assert npoints > 1  # Use @assert for validation instead of throwing an error
+
+    points = Vector(range(-1, stop=1, length=npoints))
+    weights = fill(2 / (npoints - 1), npoints)  # Use fill function to initialize weights
+    weights[1] /= 2
+    weights[end] /= 2
+    return OneDGrid(points, weights, (-1, 1))
+end
+
+
+function RectangleRuleSineEndPoints(npoints::Int)
+    if npoints <= 1
+        throw(ArgumentError("Argument npoints must be an integer > 1, given $npoints"))
+    end
+    points = collect(1:npoints) ./ (npoints + 1)
+    m = collect(1:npoints)
+    bm = (1.0 .- cos.(m .* π)) ./ (m .* π)
+    sim = sin.(m' .* π .* points)
+    weights = bm .* sim
+    weights .= 2 ./ (npoints + 1) .* weights
+    points = 2 .* points .- 1
+    weights .= 2 .* weights
+    return OneDGrid(points, weights, (-1, 1))
 end
 
 

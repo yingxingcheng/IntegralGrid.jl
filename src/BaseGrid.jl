@@ -2,21 +2,24 @@ module BaseGrid
 
 using LinearAlgebra, NearestNeighbors, NPZ
 
-export AbstractGrid, AbstractOneDGrid, AbstractLocalGrid
+export AbstractGrid
 export Grid, LocalGrid, OneDGrid
+
+export check_input
+export get_points, get_weights, get_kdtree, get_size, get_gird
+export get_center, get_indices
+export get_domain
 export getindex, integrate, moments, save, get_localgrid
 
 abstract type AbstractGrid end
-abstract type AbstractLocalGrid <: AbstractGrid end
-abstract type AbstractOneDGrid <: AbstractGrid end
 
 """
 Basic Grid struct for grid information storage.
 """
 mutable struct Grid <: AbstractGrid
     _points::VecOrMat{<:Real}
-    weights::Vector{<:Number}
-    kdtree::Union{KDTree,Nothing}
+    _weights::Vector{<:Number}
+    _kdtree::Union{KDTree,Nothing}
 
     function Grid(
         points::VecOrMat{<:Real},
@@ -27,30 +30,23 @@ mutable struct Grid <: AbstractGrid
     end
 end
 
+# the subinstance must have a field named '_grid'
+get_grid(grid::AbstractGrid) = getfield(grid, :_grid)
+get_grid(grid::Grid) = grid
+get_points(grid::AbstractGrid) = get_grid(grid)._points
+get_weights(grid::AbstractGrid) = get_grid(grid)._weights
+get_kdtree(grid::AbstractGrid) = get_grid(grid)._kdtree
+get_size(grid::AbstractGrid) = size(get_weights(grid), 1)
 
-# -----------------------------------------------
-# Another implementation using Paramters T and U
-# -----------------------------------------------
-# struct Grid{T<:Real,U<:Number} <: AbstractGrid
-#     _points::VecOrMat{T}
-#     weights::Vector{U}
-#     kdtree::Union{KDTree,Nothing}
-# 
-#     function Grid{T,U}(points::VecOrMat{T}, weights::Vector{U}, kdtree::Union{KDTree,Nothing}=nothing) where {T<:Real,U<:Number}
-#         check_input(points, weights)
-#         new{T,U}(points, weights, kdtree)
-#     end
-# end
-# 
-# Grid(points::VecOrMat{T}, weights::Vector{U}, kdtree::Union{KDTree,Nothing}=nothing) where {T<:Real,U<:Number} = Grid{T, U}(points, weights, kdtree)
+function set_kdtree(grid::AbstractGrid, kdtree::Union{KDTree,Nothing})
+    get_grid(grid)._kdtree = kdtree
+end
 
 
-mutable struct LocalGrid <: AbstractLocalGrid
-    _points::VecOrMat{<:Real}
-    weights::Vector{<:Number}
-    kdtree::Union{KDTree,Nothing}
-    center::Union{<:Real,Vector{<:Real}}
-    indices::Union{Vector{<:Real},Nothing}
+mutable struct LocalGrid <: AbstractGrid
+    _grid::Grid
+    _center::Union{<:Real,Vector{<:Real}}
+    _indices::Union{Vector{<:Real},Nothing}
 
     function LocalGrid(
         points::VecOrMat{<:Real},
@@ -58,25 +54,29 @@ mutable struct LocalGrid <: AbstractLocalGrid
         center::Union{<:Real,Vector{<:Real}},
         indices::Union{Vector{<:Real},Nothing}=nothing
     )
-        check_input(points, weights)
-        new(points, weights, nothing, center, indices)
+        new(Grid(points, weights, nothing), center, indices)
     end
 end
 
+get_center(grid::LocalGrid) = grid._center
+get_indices(grid::LocalGrid) = grid._indices
+
 
 mutable struct OneDGrid <: AbstractGrid
-    _points::Vector{<:Real}
-    weights::Vector{<:Number}
-    domain::Union{Nothing,Tuple{<:Real,<:Real}}
+    _grid::Grid
+    _domain::Union{Nothing,Tuple{<:Real,<:Real}}
 
     function OneDGrid(
         points::Vector{<:Real},
         weights::Vector{<:Real},
         domain::Union{Nothing,Tuple{<:Real,<:Real}}=nothing)
         check_input(points, weights, domain=domain)
-        new(points, weights, domain)
+        new(Grid(points, weights, nothing), domain)
     end
 end
+
+get_domain(grid::OneDGrid) = grid._domain
+
 
 function check_input(points::VecOrMat{<:Real}, weights::Vector{<:Number}; domain::Union{Nothing,Tuple{<:Real,<:Real}}=nothing)
     sizep, sizew = size(points, 1), size(weights, 1)
@@ -99,45 +99,36 @@ function check_input(points::VecOrMat{<:Real}, weights::Vector{<:Number}; domain
     end
 end
 
-function Base.getproperty(grid::AbstractGrid, prop::Symbol)
-    if prop == :points
-        return grid._points
-    elseif prop == :size
-        return size(grid.weights, 1)
-    else
-        return getfield(grid, prop)
-    end
-end
-
-# Base.length(grid::AbstractGrid) = length(grid.weights)
-
 # which one is better?
 # Method 1
 function Base.getindex(grid::T, index) where {T<:AbstractGrid}
     if typeof(index) <: Int
-        return T(grid.points[index:index], grid.weights[index:index])
+        return T(get_points(grid)[index:index], get_weights(grid)[index:index])
     else
-        return T(grid.points[index], grid.weights[index])
+        return T(get_points(grid)[index], get_weights(grid)[index])
     end
 end
 
 # Method 2
 # function Base.getindex(grid::AbstractGrid, index)
 #     if typeof(index) <: Int
-#         return typeof(grid)(grid.points[index:index], grid.weights[index:index])
+#         return typeof(grid)(get_points(grid)[index:index],get_weights(grid)[index:index])
 #     else
-#         return typeof(grid)(grid.points[index], grid.weights[index])
+#         return typeof(grid)(get_points(grid)[index],get_weights(grid)[index])
 #     end
 # end
 
-function Base.getindex(grid::AbstractOneDGrid, index)
+function Base.getindex(grid::LocalGrid, index)
     if typeof(index) <: Int
-        OneDGrid([grid.points[index]], [grid.weights[index]], grid.domain)
+        OneDGrid([get_points(grid)[index]], [get_weights(grid)[index]], get_domain(grid))
     else
-        OneDGrid(grid.points[index], grid.weights[index], grid.domain)
+        OneDGrid(get_points(grid)[index], get_weights(grid)[index], get_domain(grid))
     end
 end
 
+#-------------------------------------------------------------
+# Common functions
+#-------------------------------------------------------------
 
 # Here uses Vector{<:Number} instead of Vector{<:Number}, 
 # becuase ! (Vector{Float64} <: Vector{Number}), i.e., invariant
@@ -148,13 +139,13 @@ function integrate(grid::AbstractGrid, value_arrays::Vector{<:Number}...)
     if length(value_arrays) < 1
         throw(ArgumentError("No array is given to integrate."))
     end
-    grid_points_length = length(grid.points)
+    grid_points_length = length(get_points(grid))
     for (i, array) in enumerate(value_arrays)
         if length(array) != grid_points_length
-            throw(ArgumentError("Arg $i needs to be of size $grid_points_length."))
+            throw(ArgumentError("Arg $i needs to be of size $get_points(grid)_length."))
         end
     end
-    return sum(grid.weights .* reduce(.*, value_arrays))
+    return sum(get_weights(grid) .* reduce(.*, value_arrays))
 end
 
 """
@@ -188,15 +179,16 @@ function get_localgrid(grid::AbstractGrid, center::Union{<:Real,Vector{<:Real}},
         throw(ArgumentError("Invalid radius: $radius"))
     end
     if radius == Inf
-        return LocalGrid(grid._points, grid.weights, center, collect(1:grid.size))
+        return LocalGrid(grid._points, get_weights(grid), center, collect(1:get_size(grid)))
     else
         # When points.ndim == 1, we have to reshape a few things to make the input compatible with KDTree
         _points = ndims(grid._points) == 1 ? reshape(grid._points, (:, 1)) : grid._points
-        if grid.kdtree === nothing
-            grid.kdtree = KDTree(_points')
+        if get_kdtree(grid) === nothing
+            # grid._kdtree = KDTree(_points')
+            set_kdtree(grid, KDTree(_points'))
         end
-        indices = inrange(grid.kdtree, reshape(center, (1, :)), radius, false)[1]
-        return LocalGrid(grid._points[indices], grid.weights[indices], center, indices)
+        indices = inrange(get_kdtree(grid), reshape(center, (1, :)), radius, false)[1]
+        return LocalGrid(grid._points[indices], get_weights(grid)[indices], center, indices)
     end
 end
 
@@ -215,10 +207,10 @@ function moments(
     if ndims(centers) != 2
         throw(ArgumentError("centers should have dimension one or two."))
     end
-    if length(grid.points) != length(centers)
+    if length(get_points(grid)) != length(centers)
         throw(ArgumentError("The dimension of the grid should match the dimension of the centers."))
     end
-    if length(func_vals) != legnth(grid.points)
+    if length(func_vals) != legnth(get_points(grid))
         throw(ArgumentError("The length of function values should match the number of points in the grid."))
     end
     if type_mom == "pure-radial" && orders == 0
@@ -234,7 +226,7 @@ function moments(
         error("Orders should be either an integer, list, or numpy array.")
     end
 
-    dim = shape(points(grid))[1]
+    dim = shape(get_points(grid))[1]
     all_orders = generate_orders_horton_order(orders[1], type_mom, dim)
     for l_ord in orders[2:end]
         all_orders = vcat(all_orders, generate_orders_horton_order(l_ord, type_mom, dim))
@@ -242,12 +234,12 @@ function moments(
 
     integrals = []
     for center in eachrow(centers)
-        centered_pts = grid.points .- center
+        centered_pts = get_points(grid) .- center
 
         if type_mom == "cartesian"
             cent_pts_with_order = centered_pts .^ all_orders'
             cent_pts_with_order = prod(cent_pts_with_order, dims=2)
-            integral = sum(cent_pts_with_order .* func_vals .* grid.weights, dims=1)
+            integral = sum(cent_pts_with_order .* func_vals .* get_weights(grid), dims=1)
         elseif type_mom == "radial" || type_mom == "pure" || type_mom == "pure-radial"
             cent_pts_with_order = vec(norm.(centered_pts, dims=2))
 
@@ -256,18 +248,18 @@ function moments(
                 solid_harm = solid_harmonics(orders[end], sph_pts)
 
                 if type_mom == "pure"
-                    integral = sum(solid_harm .* func_vals .* grid.weights, dims=1)
+                    integral = sum(solid_harm .* func_vals .* get_weights(grid), dims=1)
                 elseif type_mom == "pure-radial"
                     n_princ, l_degrees, m_orders = eachcol(all_orders)
                     indices = l_degrees .^ 2
                     indices[m_orders.>0] .+= 2 .* m_orders[m_orders.>0] .- 1
                     indices[m_orders.<=0] .+= 2 .* abs.(m_orders[m_orders.<=0])
                     cent_pts_with_order = cent_pts_with_order .^ n_princ'
-                    integral = sum(cent_pts_with_order .* solid_harm[indices] .* func_vals .* grid.weights, dims=1)
+                    integral = sum(cent_pts_with_order .* solid_harm[indices] .* func_vals .* get_weights(grid), dims=1)
                 end
             elseif type_mom == "radial"
                 cent_pts_with_order = cent_pts_with_order .^ vec(all_orders)
-                integral = sum(cent_pts_with_order .* func_vals .* grid.weights, dims=1)
+                integral = sum(cent_pts_with_order .* func_vals .* get_weights(grid), dims=1)
             end
         end
 
@@ -283,13 +275,13 @@ end
 
 
 function save(grid::AbstractGrid, filename::String)
-    save_dict = Dict("points" => points(grid), "weights" => grid.weights)
+    save_dict = Dict("points" => get_points(grid), "weights" => get_weights(grid))
     npzwrite(filename, save_dict)
 end
 
-function save(grid::AbstractLocalGrid, filename::String)
-    save_dict = Dict("points" => points(grid), "weights" => grid.weights,
-        "center" => grid.center, "indices" => grid.indices)
+function save(grid::LocalGrid, filename::String)
+    save_dict = Dict("points" => get_points(grid), "weights" => get_weights(grid),
+        "center" => grid.center, "indices" => get_indices(grid))
     npzwrite(filename, save_dict)
 end
 
