@@ -9,6 +9,7 @@ export get_points, get_weights, get_kdtree, get_size, get_gird
 export get_center, get_indices
 export get_domain
 export getindex, integrate, moments, save, get_localgrid
+export _d_grid, _d_localgrid, _d_onedgrid
 
 abstract type AbstractGrid end
 
@@ -37,7 +38,7 @@ get_weights(grid::AbstractGrid) = get_grid(grid)._weights
 get_kdtree(grid::AbstractGrid) = get_grid(grid)._kdtree
 get_size(grid::AbstractGrid) = size(grid.weights, 1)
 
-_d_grid = Dict(:points => get_points, :weights => get_weights, :kdtree => get_kdtree, :size=>get_size)
+_d_grid = Dict(:points => get_points, :weights => get_weights, :kdtree => get_kdtree, :size => get_size)
 function Base.getproperty(grid::Grid, key::Symbol)
     return key in keys(_d_grid) ? _d_grid[key](grid) : getfield(grid, key)
 end
@@ -163,10 +164,9 @@ function integrate(grid::AbstractGrid, value_arrays::Vector{<:Number}...)
     if length(value_arrays) < 1
         throw(ArgumentError("No array is given to integrate."))
     end
-    grid_points_length = length(grid.points)
     for (i, array) in enumerate(value_arrays)
-        if length(array) != grid_points_length
-            throw(ArgumentError("Arg $i needs to be of size $grid.points_length."))
+        if length(array) != grid.size
+            throw(ArgumentError("Arg $i needs to be of size $(grid.size)."))
         end
     end
     return sum(grid.weights .* reduce(.*, value_arrays))
