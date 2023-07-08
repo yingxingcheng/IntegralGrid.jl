@@ -3,9 +3,9 @@ using Test
 
 function test_init(grid, ref_points, ref_weights)
     @test isa(grid, Grid)
-    @test isapprox(get_points(grid), ref_points, atol=1e-7)
-    @test isapprox(get_weights(grid), ref_weights)
-    @test size(get_weights(grid)) == size(ref_weights)
+    @test isapprox(grid.points, ref_points, atol=1e-7)
+    @test isapprox(grid.weights, ref_weights)
+    @test size(grid.weights) == size(ref_weights)
 end
 
 function test_init_diff_inputs()
@@ -28,32 +28,32 @@ end
 
 function test_get_localgrid_radius_inf(grid)
     """Test the creation of the local grid with an infinite radius."""
-    localgrid = get_localgrid(grid, get_points(grid)[4], Inf)
+    localgrid = get_localgrid(grid, grid.points[4], Inf)
     # Just make sure we are testing with a real local grid
-    @test get_size(localgrid) == get_size(grid)
-    @test all(isapprox.(get_points(localgrid), get_points(grid)))
-    @test all(isapprox.(get_weights(localgrid), get_weights(grid)))
-    @test all(isapprox.(get_indices(localgrid), 1:get_size(grid)))
+    @test localgrid.size == grid.size
+    @test all(isapprox.(localgrid.points, grid.points))
+    @test all(isapprox.(localgrid.weights, grid.weights))
+    @test all(isapprox.(localgrid.indices, 1:grid.size))
 end
 
 function test_get_localgrid(grid, _ref_points, _ref_weights)
     """Test the creation of the local grid with a normal radius."""
-    center = get_points(grid)[4]
+    center = grid.points[4]
     radius = 0.2
     localgrid = get_localgrid(grid, center, radius)
     # Just make sure we are testing with an actual local grid with less (but
     # not zero) points.
-    @test get_size(localgrid) > 0
-    @test get_size(localgrid) < get_size(grid)
+    @test localgrid.size > 0
+    @test localgrid.size < grid.size
     # Test that the local grid contains the correct results.
-    @test ndims(get_points(localgrid)) == ndims(get_points(grid))
-    @test ndims(get_weights(localgrid)) == ndims(get_weights(grid))
-    @test all(isapprox.(get_points(localgrid), get_points(grid)[get_indices(localgrid)]))
-    @test all(isapprox.(get_weights(localgrid), get_weights(grid)[get_indices(localgrid)]))
+    @test ndims(localgrid.points) == ndims(grid.points)
+    @test ndims(localgrid.weights) == ndims(grid.weights)
+    @test all(isapprox.(localgrid.points, grid.points[localgrid.indices]))
+    @test all(isapprox.(localgrid.weights, grid.weights[localgrid.indices]))
     if ndims(_ref_points) == 2
-        @test all(norm.(get_points(localgrid) .- center, dims=2) .<= radius)
+        @test all(norm.(localgrid.points .- center, dims=2) .<= radius)
     else
-        @test all(abs.(get_points(localgrid) .- center) .<= radius)
+        @test all(abs.(localgrid.points .- center) .<= radius)
     end
 end
 
@@ -61,27 +61,27 @@ function test_getitem(grid, _ref_points, _ref_weights)
     # test index
     grid_index = grid[10]
     ref_grid = Grid(_ref_points[10:10], _ref_weights[10:10])
-    @test all(isapprox.(get_points(grid_index), get_points(ref_grid)))
-    @test all(isapprox.(get_weights(grid_index), get_weights(ref_grid)))
+    @test all(isapprox.(grid_index.points, ref_grid.points))
+    @test all(isapprox.(grid_index.weights, ref_grid.weights))
     @test grid_index isa Grid
     # test slice
     ref_grid_slice = Grid(_ref_points[1:11], _ref_weights[1:11])
     grid_slice = grid[1:11]
-    @test all(isapprox.(get_points(grid_slice), get_points(ref_grid_slice)))
-    @test all(isapprox.(get_weights(grid_slice), get_weights(ref_grid_slice)))
+    @test all(isapprox.(grid_slice.points, ref_grid_slice.points))
+    @test all(isapprox.(grid_slice.weights, ref_grid_slice.weights))
     @test grid_slice isa Grid
     a = [1, 3, 5]
     ref_smt_index = grid[a]
-    @test all(isapprox.(get_points(ref_smt_index), _ref_points[a]))
-    @test all(isapprox.(get_weights(ref_smt_index), _ref_weights[a]))
+    @test all(isapprox.(ref_smt_index.points, _ref_points[a]))
+    @test all(isapprox.(ref_smt_index.weights, _ref_weights[a]))
 end
 
 function test_localgird()
     local_grid = LocalGrid([1, 2, 3], [1, 3, 4], 1)
-    @test get_points(local_grid) == [1, 2, 3]
-    @test get_weights(local_grid) == [1, 3, 4]
-    @test get_center(local_grid) == 1
-    @test isnothing(get_indices(local_grid)) == true
+    @test local_grid.points == [1, 2, 3]
+    @test local_grid.weights == [1, 3, 4]
+    @test local_grid.center == 1
+    @test isnothing(local_grid.indices) == true
 end
 
 function test_onedgrid()
@@ -99,20 +99,20 @@ function test_onedgrid()
             weights = collect(0:19) .* 0.1
             grid = OneDGrid(points, weights)
 
-            @test get_size(grid) == 20
-            @test get_domain(grid) === nothing
+            @test grid.size == 20
+            @test grid.domain === nothing
 
             subgrid = grid[1]
             @test get_size(subgrid) == 1
-            @test isapprox(get_points(subgrid), [points[1]])
-            @test isapprox(get_weights(subgrid), [weights[1]])
-            @test get_domain(subgrid) === nothing
+            @test isapprox(subgrid.points, [points[1]])
+            @test isapprox(subgrid.weights, [weights[1]])
+            @test subgrid.domain === nothing
 
             subgrid = grid[4:7]
             @test get_size(subgrid) == 4
-            @test isapprox(get_points(subgrid), points[4:7])
-            @test isapprox(get_weights(subgrid), weights[4:7])
-            @test get_domain(subgrid) === nothing
+            @test isapprox(subgrid.points, points[4:7])
+            @test isapprox(subgrid.weights, weights[4:7])
+            @test subgrid.domain === nothing
         end
     end
 end
