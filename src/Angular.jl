@@ -255,10 +255,10 @@ function AngularGrid(
 )
     if !isnothing(points) && !isnothing(weights)
         if !isnothing(degree) || !isnothing(size)
-            println(
+            throw(ArgumentError(
                 "degree or size are not used for generating grids " *
                 "because points and weights are provided"
-            )
+               ))
         end
     else
         degree, size = _get_size_and_degree(degree=degree, size=size, use_spherical=use_spherical)
@@ -275,7 +275,7 @@ function AngularGrid(
     end
 
     if !use_spherical && any(weights .< 0.0)
-        println("Lebedev weights are negative which can introduce round-off errors.")
+        @warn "Lebedev weights are negative which can introduce round-off errors."
     end
 
     AngularGrid(Grid(points, weights), degree, use_spherical)
@@ -295,11 +295,11 @@ function _get_size_and_degree(; degree::Union{<:Int,Nothing}=nothing, size::Unio
     npoints = use_spherical ? SPHERICAL_NPOINTS : LEBEDEV_NPOINTS
 
     if !isnothing(size) && !isinteger(size)
-        throw("size $size should be of type int, not boolean. May be confused with use_spherical.")
+        throw(ArgumentError("size $size should be of type int, not boolean. May be confused with use_spherical."))
     end
 
     if !isnothing(degree) && !isnothing(size)
-        warn("Both degree and size arguments are given, so only degree is used!", RuntimeWarning, 2)
+        @warn "Both degree and size arguments are given, so only degree is used!"
     end
 
     if !isnothing(degree)

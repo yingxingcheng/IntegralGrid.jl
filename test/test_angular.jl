@@ -43,6 +43,31 @@ function test_convert_lebedev_sizes_to_degrees()
     @test degs == ref_degs
 end
 
+
+function test_integration_of_spherical_harmonic_up_to_degree(degree, use_spherical)
+    grid = AngularGrid(degree=degree, use_spherical=use_spherical)
+    # Convert to spherical coordinates from Cartesian.
+    # r = vec(norm.(grid.points, dims=2))
+    r = sqrt.(sum(abs2, grid.points, dims=2))
+    phi = acos.(grid.points[:, 3] ./ r)
+    theta = atan.(grid.points[:, 2], grid.points[:, 1])
+    # Generate All Spherical Harmonics Up To Degree = 10
+    # Returns a three-dimensional array where [order m, degree l, points]
+    sph_harm = generate_real_spherical_harmonics(degree, theta, phi)
+    for l_deg in 0:degree-1
+        for (i, m_ord) in enumerate(-l_deg:l_deg)
+            sph_harm_one = sph_harm[l_deg^2+1 : (l_deg + 1) ^ 2+1, :]
+            if l_deg == 0 && m_ord == 0
+                actual = sqrt(4.0 * pi)
+            else
+                actual = 0.0
+            end
+            @test isapprox(actual, integrate(grid, sph_harm_one[i, :]), atol=1e-7)
+        end
+    end
+end
+
+
 # Test integration of spherical harmonic of degree higher than grid is not accurate.
 function test_integration_of_spherical_harmonic_not_accurate_beyond_degree(use_spherical)
     grid = AngularGrid(degree=3, use_spherical=use_spherical)
@@ -103,7 +128,6 @@ end
     test_integration_of_spherical_harmonic_up_to_degree(5, true)
     test_integration_of_spherical_harmonic_up_to_degree(10, false)
     test_integration_of_spherical_harmonic_up_to_degree(10, true)
-    test_integration_of_spherical_harmonic_not_accurate_beyond_degree()
     test_integration_of_spherical_harmonic_not_accurate_beyond_degree(false)
     test_integration_of_spherical_harmonic_not_accurate_beyond_degree(true)
     test_orthogonality_of_spherical_harmonic_up_to_degree_three(false)
