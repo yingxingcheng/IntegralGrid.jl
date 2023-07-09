@@ -43,6 +43,58 @@ function test_convert_lebedev_sizes_to_degrees()
     @test degs == ref_degs
 end
 
+# Test integration of spherical harmonic of degree higher than grid is not accurate.
+function test_integration_of_spherical_harmonic_not_accurate_beyond_degree(use_spherical)
+    grid = AngularGrid(degree=3, use_spherical=use_spherical)
+    r = sqrt.(sum(abs2, grid.points, dims=2))
+    phi = acos.(grid.points[:, 3] ./ r)
+    theta = atan.(grid.points[:, 2], grid.points[:, 1])
+
+    sph_harm = generate_real_spherical_harmonics(l_max=6, theta=theta, phi=phi)
+    # Check that l=4,m=0 gives inaccurate results
+    @test abs(integrate(grid, sph_harm[4^2+1, :])) > 1e-8
+    # Check that l=6,m=0 gives inaccurate results
+    @test abs(integrate(grid, sph_harm[6^2+1, :])) > 1e-8
+end
+
+# Test orthogonality of spherical harmonic up to degree 3 is accurate.
+function test_orthogonality_of_spherical_harmonic_up_to_degree_three(use_spherical)
+    degree = 3
+    grid = AngularGrid(degree=10, use_spherical=use_spherical)
+    # Convert to spherical coordinates from Cartesian.
+    r = sqrt.(sum(abs2, grid.points, dims=2))
+    phi = acos.(grid.points[:, 3] ./ r)
+    theta = atan.(grid.points[:, 2], grid.points[:, 1])
+    # Generate All Spherical Harmonics Up To Degree = 3
+    # Returns a three-dimensional array where [order m, degree l, points]
+    sph_harm = generate_real_spherical_harmonics(degree, theta, phi)
+    for l_deg in 0:3
+        for (i, m_ord) in enumerate([0; 1:l_deg; -1:-1:-l_deg])
+            for l2 in 0:3
+                for (j, m2) in enumerate([0; 1:l2; -1:-1:-l2])
+                    sph_harm_one = sph_harm[l_deg^2+1 : (l_deg + 1)^2, :]
+                    sph_harm_two = sph_harm[l2^2+1 : (l2 + 1)^2, :]
+                    integral =integrate(grid, sph_harm_one[i, :] .* sph_harm_two[j, :])
+                    if l2 != l_deg || m2 != m_ord
+                        @test abs(integral) < 1e-8
+                    else
+                        @test abs(integral - 1.0) < 1e-8
+                    end
+                end
+            end
+        end
+    end
+end
+
+# Test the sum of all points on the sphere is zero.
+function test_that_symmetric_spherical_design_is_symmetric()
+    for degree in keys(SPHERICAL_DEGREES)
+        grid = AngularGrid(degree=degree, use_spherical=true, cache=false)
+        @test all(abs.(sum(grid.points, dims=1)) .< 1e-8)
+    end
+end
+
+
 @testset "ModuleAngular.jl" begin
     test_consistency()
     test_lebedev_cache()
@@ -51,4 +103,10 @@ end
     test_integration_of_spherical_harmonic_up_to_degree(5, true)
     test_integration_of_spherical_harmonic_up_to_degree(10, false)
     test_integration_of_spherical_harmonic_up_to_degree(10, true)
+    test_integration_of_spherical_harmonic_not_accurate_beyond_degree()
+    test_integration_of_spherical_harmonic_not_accurate_beyond_degree(false)
+    test_integration_of_spherical_harmonic_not_accurate_beyond_degree(true)
+    test_orthogonality_of_spherical_harmonic_up_to_degree_three(false)
+    test_orthogonality_of_spherical_harmonic_up_to_degree_three(true)
+    test_that_symmetric_spherical_design_is_symmetric()
 end

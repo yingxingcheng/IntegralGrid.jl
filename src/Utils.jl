@@ -436,6 +436,8 @@ function generate_real_spherical_harmonics(l_max, theta, phi)
     return spherical_harm
 end
 
+generate_real_spherical_harmonics(; l_max, theta, phi) = generate_real_spherical_harmonics(l_max, theta, phi)
+
 function solid_harmonics(l_max::Int, sph_pts::Array{Float64,2})
     raw"""
     Generate the solid harmonics from zero to a maximum angular degree.
