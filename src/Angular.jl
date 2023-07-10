@@ -258,7 +258,7 @@ function AngularGrid(
             throw(ArgumentError(
                 "degree or size are not used for generating grids " *
                 "because points and weights are provided"
-               ))
+            ))
         end
     else
         degree, size = _get_size_and_degree(degree=degree, size=size, use_spherical=use_spherical)
@@ -327,7 +327,7 @@ function _load_precomputed_angular_grid(degree::Int, grid_size::Int, use_spheric
     degrees = use_spherical ? SPHERICAL_DEGREES : LEBEDEV_DEGREES
     npoints = use_spherical ? SPHERICAL_NPOINTS : LEBEDEV_NPOINTS
     type = use_spherical ? "spherical" : "lebedev"
-    package_data_path = joinpath(abspath(".."), "src", "data")
+    package_data_path = joinpath(@__DIR__, "..", "src", "data")
     sub_file_path = use_spherical ? "spherical_design" : "lebedev"
     file_path = joinpath(package_data_path, sub_file_path)
 

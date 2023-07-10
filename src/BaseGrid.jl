@@ -2,16 +2,15 @@ module BaseGrid
 
 using LinearAlgebra, NearestNeighbors, NPZ
 
-export AbstractGrid
+export AbstractGrid, AbstractExtendedGrid
 export Grid, LocalGrid, OneDGrid
 
 export get_points, get_weights, get_kdtree, get_size, get_gird
-export get_center, get_indices
-export get_domain
 export getindex, integrate, moments, save, get_localgrid
-export _d_grid, _d_localgrid, _d_onedgrid
+export _d_grid, _getproperty
 
 abstract type AbstractGrid end
+abstract type AbstractExtendedGrid <: AbstractGrid end
 
 """
 Basic Grid struct for grid information storage.
@@ -38,20 +37,32 @@ get_weights(grid::AbstractGrid) = get_grid(grid)._weights
 get_kdtree(grid::AbstractGrid) = get_grid(grid)._kdtree
 get_size(grid::AbstractGrid) = size(grid.weights, 1)
 
+function set_kdtree(grid::AbstractGrid, kdtree::Union{KDTree,Nothing})
+    get_grid(grid)._kdtree = kdtree
+end
+
 _d_grid = Dict(:points => get_points, :weights => get_weights, :kdtree => get_kdtree, :size => get_size)
 function Base.getproperty(grid::Grid, key::Symbol)
     return key in keys(_d_grid) ? _d_grid[key](grid) : getfield(grid, key)
 end
 
-function set_kdtree(grid::AbstractGrid, kdtree::Union{KDTree,Nothing})
-    get_grid(grid)._kdtree = kdtree
+function _getproperty(grid::AbstractExtendedGrid, key::Symbol; extended_dict::Union{Dict,Nothing}=nothing)
+    if key in keys(_d_grid)
+        return _d_grid[key](grid)
+    elseif !isnothing(extended_dict) && (key in keys(extended_dict))
+        return extended_dict[key](grid)
+    else
+        return getfield(grid, key)
+    end
 end
+# By default, there is not extra arguments applied.
+Base.getproperty(grid::AbstractExtendedGrid, key::Symbol) = _getproperty(grid, key)
 
 
-mutable struct LocalGrid <: AbstractGrid
+mutable struct LocalGrid <: AbstractExtendedGrid
     _grid::Grid
-    _center::Union{<:Real,Vector{<:Real}}
-    _indices::Union{Vector{<:Real},Nothing}
+    center::Union{<:Real,Vector{<:Real}}
+    indices::Union{Vector{<:Real},Nothing}
 
     function LocalGrid(
         points::VecOrMat{<:Real},
@@ -63,23 +74,10 @@ mutable struct LocalGrid <: AbstractGrid
     end
 end
 
-get_center(grid::LocalGrid) = grid._center
-get_indices(grid::LocalGrid) = grid._indices
-_d_localgrid = Dict(:center => get_center, :indices => get_indices)
-function Base.getproperty(grid::LocalGrid, key::Symbol)
-    if key in keys(_d_grid)
-        return _d_grid[key](grid)
-    elseif key in keys(_d_localgrid)
-        return _d_localgrid[key](grid)
-    else
-        getfield(grid, key)
-    end
-end
 
-
-mutable struct OneDGrid <: AbstractGrid
+mutable struct OneDGrid <: AbstractExtendedGrid
     _grid::Grid
-    _domain::Union{Nothing,Tuple{<:Real,<:Real}}
+    domain::Union{Nothing,Tuple{<:Real,<:Real}}
 
     function OneDGrid(
         points::Vector{<:Real},
@@ -89,19 +87,6 @@ mutable struct OneDGrid <: AbstractGrid
         new(Grid(points, weights, nothing), domain)
     end
 end
-
-get_domain(grid::OneDGrid) = grid._domain
-_d_onedgrid = Dict(:domain => get_domain)
-function Base.getproperty(grid::OneDGrid, key::Symbol)
-    if key in keys(_d_grid)
-        return _d_grid[key](grid)
-    elseif key in keys(_d_onedgrid)
-        return _d_onedgrid[key](grid)
-    else
-        getfield(grid, key)
-    end
-end
-
 
 function check_input(points::VecOrMat{<:Real}, weights::Vector{<:Number}; domain::Union{Nothing,Tuple{<:Real,<:Real}}=nothing)
     sizep, sizew = size(points, 1), size(weights, 1)
@@ -145,9 +130,9 @@ end
 
 function Base.getindex(grid::LocalGrid, index)
     if typeof(index) <: Int
-        OneDGrid([grid.points[index]], [grid.weights[index]], get_domain(grid))
+        OneDGrid([grid.points[index]], [grid.weights[index]], grid.domain)
     else
-        OneDGrid(grid.points[index], grid.weights[index], get_domain(grid))
+        OneDGrid(grid.points[index], grid.weights[index], grid.domain)
     end
 end
 
@@ -203,7 +188,7 @@ function get_localgrid(grid::AbstractGrid, center::Union{<:Real,Vector{<:Real}},
         throw(ArgumentError("Invalid radius: $radius"))
     end
     if radius == Inf
-        return LocalGrid(grid._points, grid.weights, center, collect(1:get_size(grid)))
+        return LocalGrid(grid._points, grid.weights, center, collect(1:grid.size))
     else
         # When points.ndim == 1, we have to reshape a few things to make the input compatible with KDTree
         _points = ndims(grid._points) == 1 ? reshape(grid._points, (:, 1)) : grid._points
@@ -305,7 +290,7 @@ end
 
 function save(grid::LocalGrid, filename::String)
     save_dict = Dict("points" => grid.points, "weights" => grid.weights,
-        "center" => grid.center, "indices" => get_indices(grid))
+        "center" => grid.center, "indices" => grid.indices)
     npzwrite(filename, save_dict)
 end
 
