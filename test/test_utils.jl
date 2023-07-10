@@ -1,4 +1,5 @@
 using IntegralGrid.Utils
+using IntegralGrid.Angular
 using Test, Random, LinearAlgebra
 
 function test_get_atomic_radii()
@@ -121,54 +122,55 @@ function test_generate_real_spherical_is_accurate()
     @test isapprox(sph_h[4, :], sqrt(3 / (4π)) * pts[:, 2] ./ r)
 end
 
-# function test_generate_real_spherical_is_orthonormal()
-#     atgrid = AngularGrid(7)
-#     pts = atgrid.points
-#     wts = atgrid.weights
-#     r = norm(pts, dims=2)
-#     phi = acos.(pts[:, 3] ./ r)
-#     theta = atan2.(pts[:, 2], pts[:, 1])
-#     sph_h = generate_real_spherical_harmonics(3, theta, phi)  # l_max = 3
-#     @test size(sph_h) == (16, 26)
-#     for _ in 1:100
-#         n1, n2 = rand(0:15, 2)
-#         re = sum(sph_h[n1+1, :] .* sph_h[n2+1, :] .* wts)
-#         if n1 != n2
-#             @test re ≈ 0 atol = 1e-7
-#         else
-#             @test re ≈ 1 atol = 1e-7
-#         end
-#     end
-#     for i in 0:9
-#         sph_h = generate_real_spherical_harmonics(i, theta, phi)
-#         @test size(sph_h) == ((i + 1)^2, 26)
-#     end
-# end
-# 
-# function test_generate_real_sph_harms_integrates_correctly()
-#     angular = AngularGrid(7)
-#     pts = angular.points
-#     wts = angular.weights
-#     r = norm(pts, dims=2)
-#     phi = acos.(pts[:, 3] ./ r)
-#     theta = atan2.(pts[:, 2], pts[:, 1])
-#     lmax = 3
-#     sph_h = generate_real_spherical_harmonics(lmax, theta, phi)  # l_max = 3
-#     @test size(sph_h) == (1 + 3 + 5 + 7, 26)
-#     counter = 1
-#     for l_value in 0:lmax
-#         for m in [0; collect(1:l_value); collect(-l_value:-1)]
-#             re = sum(sph_h[counter, :] .* wts)
-#             if l_value == 0
-#                 @test re ≈ sqrt(4π) atol = 1e-7
-#             else
-#                 @test re ≈ 0 atol = 1e-7
-#             end
-#             @test sum(isnan.(re)) == 0
-#             counter += 1
-#         end
-#     end
-# end
+function test_generate_real_spherical_is_orthonormal()
+    atgrid = AngularGrid(degree=7)
+    pts = atgrid.points
+    wts = atgrid.weights
+    r = vec(sqrt.(sum(abs2, pts, dims=2)))
+    phi = acos.(pts[:, 3] ./ r)
+    theta = atan.(pts[:, 2], pts[:, 1])
+    sph_h = generate_real_spherical_harmonics(3, theta, phi)  # l_max = 3
+    @test size(sph_h) == (16, 26)
+    for _ in 1:100
+        n1, n2 = rand(0:15, 2)
+        re = sum(sph_h[n1+1, :] .* sph_h[n2+1, :] .* wts)
+        if n1 != n2
+            @test re ≈ 0 atol = 1e-7
+        else
+            @test re ≈ 1 atol = 1e-7
+        end
+    end
+    for i in 0:9
+        sph_h = generate_real_spherical_harmonics(i, theta, phi)
+        @test size(sph_h) == ((i + 1)^2, 26)
+    end
+end
+
+
+function test_generate_real_sph_harms_integrates_correctly()
+    angular = AngularGrid(degree=7)
+    pts = angular.points
+    wts = angular.weights
+    r = vec(sqrt.(sum(abs2, pts, dims=2)))
+    phi = acos.(pts[:, 3] ./ r)
+    theta = atan.(pts[:, 2], pts[:, 1])
+    lmax = 3
+    sph_h = generate_real_spherical_harmonics(lmax, theta, phi)  # l_max = 3
+    @test size(sph_h) == (1 + 3 + 5 + 7, 26)
+    counter = 1
+    for l_value in 0:lmax
+        for m in [0; collect(1:l_value); collect(-l_value:-1)]
+            re = sum(sph_h[counter, :] .* wts)
+            if l_value == 0
+                @test re ≈ sqrt(4π) atol = 1e-7
+            else
+                @test re ≈ 0 atol = 1e-7
+            end
+            @test sum(isnan.(re)) == 0
+            counter += 1
+        end
+    end
+end
 
 function vecnorm(A::AbstractMatrix{T}, dims::Integer=1) where {T}
     return sqrt.(sum(abs2, A, dims=dims))
@@ -219,7 +221,6 @@ function test_generate_orders_horton_order()
 end
 
 
-
 @testset "Utils.jl" begin
     test_get_atomic_radii()
     test_convert_cart_to_sph()
@@ -227,5 +228,23 @@ end
     test_generate_real_spherical_is_accurate()
     test_regular_solid_spherical_harmonics()
     test_generate_orders_horton_order()
+    test_generate_real_sph_harms_integrates_correctly()
+    test_generate_real_spherical_is_orthonormal()
 
+    @testset "test_derivative_of_spherical_harmonics_with_finite_difference" begin
+        for (numb_pts, max_degree) in [[5000, 2], [100, 15], [10, 20], [1000, 10], [10, 0]]
+            theta = vcat(1e-5, rand(numb_pts) * 2 * π)
+            phi = vcat(1e-5, rand(numb_pts) * π)
+            eps = 1e-7
+            l_max = max_degree
+            value = generate_real_spherical_harmonics(l_max, theta, phi)
+            value_at_eps_theta = generate_real_spherical_harmonics(l_max, theta .+ eps, phi)
+            value_at_eps_phi = generate_real_spherical_harmonics(l_max, theta, phi .+ eps)
+            actual_answer = generate_derivative_real_spherical_harmonics(l_max, theta, phi)
+            deriv_theta = (value_at_eps_theta .- value) ./ eps
+            deriv_phi = (value_at_eps_phi .- value) ./ eps
+            @test isapprox(actual_answer[1, :, :], deriv_theta, atol=1e-3)
+            @test isapprox(actual_answer[2, :, :], deriv_phi, atol=1e-3)
+        end
+    end
 end

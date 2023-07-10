@@ -1,7 +1,9 @@
 module Utils
 using LinearAlgebra, SpecialFunctions
+using SphericalHarmonics
 
 export get_cov_radii, generate_real_spherical_harmonics, convert_cart_to_sph, solid_harmonics, generate_orders_horton_order
+export sph_harm, generate_derivative_real_spherical_harmonics
 
 _bragg = [
     0.47243153,
@@ -323,7 +325,7 @@ function get_cov_radii(atnums, type="bragg")
 end
 
 
-function generate_real_spherical_harmonics(l_max, theta, phi)
+function generate_real_spherical_harmonics(l_max::Int, theta::AbstractVector{<:Real}, phi::AbstractVector{<:Real})
     raw"""
     Compute the real spherical harmonics recursively up to a maximum angular degree l.
 
@@ -438,6 +440,112 @@ end
 
 generate_real_spherical_harmonics(; l_max, theta, phi) = generate_real_spherical_harmonics(l_max, theta, phi)
 
+
+function sph_harm(m::Int, l::Int, theta::Real, phi::Real)
+    # In scipy, phi is polar, theta is azimuth angle, while in SphericalHarmonics, theta is polar, phi is azimuth angle
+    return (m > l || m < -l) ? nothing : computeYlm(phi, theta, lmax=l, m=m)[(l, m)]
+end
+
+function sph_harm(m::Int, l::Int, theta::AbstractVector{<:Real}, phi::AbstractVector{<:Real})
+    if abs(m) > l
+        return fill(Inf, size(theta))
+    end
+
+    out = computeYlm.(phi, theta, lmax=l, m=m)
+    res = [ele[(l, m)] for ele in out]
+    return res
+end
+
+function sph_harm(m::AbstractVector{Int}, l::AbstractVector{Int}, theta::AbstractVector{<:Real}, phi::AbstractVector{<:Real})
+    res = similar(theta)
+    for (i, (m_i, l_i, theta_i, phi_i)) in enumerate(zip(m, l, theta, phi))
+        res[i] = sph_harm(m_i, l_i, theta_i, phi_i)
+    end
+    return res
+end
+
+
+function generate_derivative_real_spherical_harmonics(l_max::Int, theta::AbstractVector{<:Real}, phi::AbstractVector{<:Real})
+    raw"""
+    Generate derivatives of real spherical harmonics.
+
+    If ϕ is zero, then the first component of the derivative wrt to
+    ϕ is set to zero.
+
+    Parameters
+    ----------
+    l_max : int
+        Largest angular degree of the spherical harmonics.
+    theta : Array{Float64}
+        Azimuthal angle θ ∈ [0, 2π] that are being evaluated on.
+        If this angle is outside of bounds, then periodicity is used.
+    phi : Array{Float64}
+        Polar angle ϕ ∈ [0, π] that are being evaluated on.
+        If this angle is outside of bounds, then periodicity is used.
+
+    Returns
+    -------
+    Array{Float64, 3}
+        Derivative of spherical harmonics, (theta first, then phi) of all degrees up to
+        l_max and orders m in Horton 2 order, i.e.
+        m = 0, 1, -1, ⋯, l, -l.
+    """
+
+    num_pts = length(theta)
+    # Shape (Derivs, Spherical, Pts)
+    output = zeros(Float64, 2, (l_max + 1)^2, num_pts)
+
+    complex_expon = exp.(-theta * im)  # Needed for derivative wrt to phi
+    l_list = 0:l_max
+    sph_harm_vals = generate_real_spherical_harmonics(l_max, theta, phi)
+    i_output = 1
+    for l_val in l_list
+        for m in vcat(0, [i for i in Iterators.flatten([(i, -i) for i in 1:l_val])])
+            # Take all spherical harmonics at degree l_val
+            sph_harm_degree = sph_harm_vals[(l_val)^2+1:(l_val+1)^2, :]
+
+            # Take derivative wrt to theta:
+            # for complex spherical harmonic it is   i m Y^m_l,
+            # Note ie^(i |m| x) = -sin(|m| x) + i cos(|m| x), then take real/imaginary component.
+            # hence why the negative is in (-m).
+            # index_m maps m to index where (l, m)  is located in `sph_harm_degree`.
+            index_m(m) = m > 0 ? 2 * m : Int(2 * abs(m)) + 1
+
+            output[1, i_output, :] = -m * sph_harm_degree[index_m(-m), :]
+
+            # Take derivative wrt to phi:
+            cot_tangent = 1.0 ./ tan.(phi)
+            cot_tangent[abs.(tan.(phi)).<1e-10] .= 0.0
+            # Calculate the derivative in two pieces:
+            fac = sqrt.((l_val - abs(m)) .* (l_val + abs(m) + 1))
+            output[2, i_output, :] = abs(m) .* cot_tangent .* sph_harm_degree[index_m(m), :]
+            # Compute it using SciPy, removing conway phase (-1)^m and multiply by 2^0.5.
+            sph_harm_m = (
+                fac
+                * sph_harm(abs(m) + 1, l_val, theta, phi)
+                * sqrt(2)
+                * (-1.0)^m)
+            if m >= 0
+                if m < l_val  # When m == l_val, then fac = 0
+                    output[2, i_output, :] .+= real.(complex_expon .* sph_harm_m)
+                end
+            elseif m < 0
+                # generate order m=negative real spherical harmonic
+                if m > -l_val
+                    output[2, i_output, :] .+= imag.(complex_expon .* sph_harm_m)
+                end
+            end
+            if m == 0
+                # sqrt(2.0) isn't included in Y_l^m only m ≠ 0
+                output[2, i_output, :] ./= sqrt(2.0)
+            end
+            i_output += 1
+        end
+    end
+    return output
+end
+
+
 function solid_harmonics(l_max::Int, sph_pts::Array{Float64,2})
     raw"""
     Generate the solid harmonics from zero to a maximum angular degree.
@@ -465,6 +573,35 @@ function solid_harmonics(l_max::Int, sph_pts::Array{Float64,2})
     return (
         spherical_harm .* r' .^ degrees .* sqrt.(4.0 * π ./ (2 .* degrees .+ 1))
     )
+end
+
+
+function convert_derivative_from_spherical_to_cartesian(deriv_r::Real, deriv_theta::Real, deriv_phi::Real, r::Real, theta::Real, phi::Real)
+    jacobian = reshape([
+            cos(theta) * sin(phi), 
+            -sin(theta) / (r * sin(phi)), 
+            cos(theta) * cos(phi) / r,
+            sin(theta) * sin(phi), 
+            cos(theta) / (r * sin(phi)),
+            sin(theta) * cos(phi) / r,
+            cos(phi), 
+            0.0, 
+            -sin(phi) / r,
+        ], (3, 3))
+    # If the radial component is zero, then put all zeros on the derivs of theta and phi
+    if abs(r) < 1e-10
+        jacobian[:, 2] .= 0.0
+        jacobian[:, 3] .= 0.0
+    end
+    # If phi angle is zero, then set the derivative wrt to theta to zero
+    if abs(phi) < 1e-10
+        jacobian[:, 2] .= 0.0
+    end
+    return jacobian * [deriv_r, deriv_theta, deriv_phi]
+end
+
+function convert_derivative_from_spherical_to_cartesian(deriv_r::AbstractVector{<:Real}, deriv_theta::AbstractVector{<:Real}, deriv_phi::AbstractVector{<:Real}, r::AbstractVector{<:Real}, theta::AbstractVector{<:Real}, phi::AbstractVector{<:Real})
+    return [convert_derivative_from_spherical_to_cartesian(dr, dt, dp, rr, tt, pp) for (dr, dt, dp, rr, tt, pp) in zip(deriv_r, deriv_theta, deriv_phi, r, theta, phi)]
 end
 
 

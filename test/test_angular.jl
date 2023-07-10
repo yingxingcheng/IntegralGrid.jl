@@ -48,7 +48,7 @@ function test_integration_of_spherical_harmonic_up_to_degree(degree, use_spheric
     grid = AngularGrid(degree=degree, use_spherical=use_spherical)
     # Convert to spherical coordinates from Cartesian.
     # r = vec(norm.(grid.points, dims=2))
-    r = sqrt.(sum(abs2, grid.points, dims=2))
+    r = vec(sqrt.(sum(abs2, grid.points, dims=2)))
     phi = acos.(grid.points[:, 3] ./ r)
     theta = atan.(grid.points[:, 2], grid.points[:, 1])
     # Generate All Spherical Harmonics Up To Degree = 10
@@ -56,7 +56,7 @@ function test_integration_of_spherical_harmonic_up_to_degree(degree, use_spheric
     sph_harm = generate_real_spherical_harmonics(degree, theta, phi)
     for l_deg in 0:degree-1
         for (i, m_ord) in enumerate(-l_deg:l_deg)
-            sph_harm_one = sph_harm[l_deg^2+1 : (l_deg + 1) ^ 2+1, :]
+            sph_harm_one = sph_harm[l_deg^2+1:(l_deg+1)^2+1, :]
             if l_deg == 0 && m_ord == 0
                 actual = sqrt(4.0 * pi)
             else
@@ -71,7 +71,7 @@ end
 # Test integration of spherical harmonic of degree higher than grid is not accurate.
 function test_integration_of_spherical_harmonic_not_accurate_beyond_degree(use_spherical)
     grid = AngularGrid(degree=3, use_spherical=use_spherical)
-    r = sqrt.(sum(abs2, grid.points, dims=2))
+    r = vec(sqrt.(sum(abs2, grid.points, dims=2)))
     phi = acos.(grid.points[:, 3] ./ r)
     theta = atan.(grid.points[:, 2], grid.points[:, 1])
 
@@ -87,7 +87,7 @@ function test_orthogonality_of_spherical_harmonic_up_to_degree_three(use_spheric
     degree = 3
     grid = AngularGrid(degree=10, use_spherical=use_spherical)
     # Convert to spherical coordinates from Cartesian.
-    r = sqrt.(sum(abs2, grid.points, dims=2))
+    r = vec(sqrt.(sum(abs2, grid.points, dims=2)))
     phi = acos.(grid.points[:, 3] ./ r)
     theta = atan.(grid.points[:, 2], grid.points[:, 1])
     # Generate All Spherical Harmonics Up To Degree = 3
@@ -97,9 +97,9 @@ function test_orthogonality_of_spherical_harmonic_up_to_degree_three(use_spheric
         for (i, m_ord) in enumerate([0; 1:l_deg; -1:-1:-l_deg])
             for l2 in 0:3
                 for (j, m2) in enumerate([0; 1:l2; -1:-1:-l2])
-                    sph_harm_one = sph_harm[l_deg^2+1 : (l_deg + 1)^2, :]
-                    sph_harm_two = sph_harm[l2^2+1 : (l2 + 1)^2, :]
-                    integral =integrate(grid, sph_harm_one[i, :] .* sph_harm_two[j, :])
+                    sph_harm_one = sph_harm[l_deg^2+1:(l_deg+1)^2, :]
+                    sph_harm_two = sph_harm[l2^2+1:(l2+1)^2, :]
+                    integral = integrate(grid, sph_harm_one[i, :] .* sph_harm_two[j, :])
                     if l2 != l_deg || m2 != m_ord
                         @test abs(integral) < 1e-8
                     else
