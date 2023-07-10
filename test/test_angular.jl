@@ -15,6 +15,7 @@ end
 
 # test_lebedev_cache method
 function test_lebedev_cache()
+    empty!(LEBEDEV_CACHE)
     degrees = rand(1:100, 50)
     for i in keys(degrees)
         AngularGrid(degree=i, cache=false)

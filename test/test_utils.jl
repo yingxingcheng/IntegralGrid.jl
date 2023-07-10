@@ -123,6 +123,7 @@ function test_generate_real_spherical_is_accurate()
 end
 
 function test_generate_real_spherical_is_orthonormal()
+    empty!(LEBEDEV_CACHE)
     atgrid = AngularGrid(degree=7)
     pts = atgrid.points
     wts = atgrid.weights
@@ -148,6 +149,7 @@ end
 
 
 function test_generate_real_sph_harms_integrates_correctly()
+    empty!(LEBEDEV_CACHE)
     angular = AngularGrid(degree=7)
     pts = angular.points
     wts = angular.weights
