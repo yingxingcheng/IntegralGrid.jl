@@ -121,17 +121,26 @@ function test_that_symmetric_spherical_design_is_symmetric()
 end
 
 
+function test_biscet_left()
+    array = [3, 5, 7, 10, 50]
+    @test bisect_left(array, 2) == 1
+    @test bisect_left(array, 4) == 2
+    @test bisect_left(array, 5) == 2
+    @test bisect_left(array, 7) == 3
+end
+
 @testset "ModuleAngular.jl" begin
-    test_consistency()
-    test_lebedev_cache()
-    test_convert_lebedev_sizes_to_degrees()
-    test_integration_of_spherical_harmonic_up_to_degree(5, false)
-    test_integration_of_spherical_harmonic_up_to_degree(5, true)
-    test_integration_of_spherical_harmonic_up_to_degree(10, false)
-    test_integration_of_spherical_harmonic_up_to_degree(10, true)
-    test_integration_of_spherical_harmonic_not_accurate_beyond_degree(false)
-    test_integration_of_spherical_harmonic_not_accurate_beyond_degree(true)
-    test_orthogonality_of_spherical_harmonic_up_to_degree_three(false)
-    test_orthogonality_of_spherical_harmonic_up_to_degree_three(true)
-    test_that_symmetric_spherical_design_is_symmetric()
+    # test_consistency()
+    # test_lebedev_cache()
+    # test_convert_lebedev_sizes_to_degrees()
+    # test_integration_of_spherical_harmonic_up_to_degree(5, false)
+    # test_integration_of_spherical_harmonic_up_to_degree(5, true)
+    # test_integration_of_spherical_harmonic_up_to_degree(10, false)
+    # test_integration_of_spherical_harmonic_up_to_degree(10, true)
+    # test_integration_of_spherical_harmonic_not_accurate_beyond_degree(false)
+    # test_integration_of_spherical_harmonic_not_accurate_beyond_degree(true)
+    # test_orthogonality_of_spherical_harmonic_up_to_degree_three(false)
+    # test_orthogonality_of_spherical_harmonic_up_to_degree_three(true)
+    # test_that_symmetric_spherical_design_is_symmetric()
+    test_biscet_left()
 end

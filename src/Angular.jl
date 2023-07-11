@@ -7,6 +7,7 @@ export LEBEDEV_NPOINTS, SPHERICAL_NPOINTS, LEBEDEV_DEGREES, SPHERICAL_DEGREES, L
 export AngularGrid
 export _load_precomputed_angular_grid, _get_size_and_degree
 export convert_angular_sizes_to_degrees
+export bisect_left
 
 # Lebedev dictionary for converting number of grid points (keys) to grid's degrees (values)
 const LEBEDEV_NPOINTS = Dict(
@@ -235,9 +236,8 @@ end
 
 mutable struct AngularGrid <: AbstractGrid
     _grid::Grid
-    degree::Int
+    degree::Union{Int,Nothing}
     use_spherical::Bool
-
 end
 
 function Base.getproperty(grid::AngularGrid, key::Symbol)
@@ -281,7 +281,7 @@ function AngularGrid(
     AngularGrid(Grid(points, weights), degree, use_spherical)
 end
 
-function convert_angular_sizes_to_degrees(sizes::Vector{Int}; use_spherical::Bool=false)
+function convert_angular_sizes_to_degrees(sizes::Vector{<:Int}, use_spherical::Bool)
     degrees = similar(sizes, Int)
     for (idx, _size) in enumerate(unique(sizes))
         deg = _get_size_and_degree(degree=nothing, size=_size, use_spherical=use_spherical)[1]
@@ -289,6 +289,7 @@ function convert_angular_sizes_to_degrees(sizes::Vector{Int}; use_spherical::Boo
     end
     return degrees
 end
+convert_angular_sizes_to_degrees(sizes::Vector{<:Int}; use_spherical::Bool=false) = convert_angular_sizes_to_degrees(sizes, use_spherical)
 
 function _get_size_and_degree(; degree::Union{<:Int,Nothing}=nothing, size::Union{<:Int,Nothing}=nothing, use_spherical::Bool=false)
     degrees = use_spherical ? SPHERICAL_DEGREES : LEBEDEV_DEGREES
@@ -303,7 +304,7 @@ function _get_size_and_degree(; degree::Union{<:Int,Nothing}=nothing, size::Unio
     end
 
     if !isnothing(degree)
-        ang_degs = collect(keys(degrees))
+        ang_degs = sort(collect(keys(degrees)))
         max_degree = maximum(ang_degs)
         if degree < 0 || degree > max_degree
             throw("Argument degree should be a positive integer: $max_degree, got $degree ")
@@ -311,7 +312,7 @@ function _get_size_and_degree(; degree::Union{<:Int,Nothing}=nothing, size::Unio
         degree = degree ∈ ang_degs ? degree : ang_degs[bisect_left(ang_degs, degree)]
         return degree, degrees[degree]
     elseif !isnothing(size)
-        ang_npts = collect(keys(npoints))
+        ang_npts = sort(collect(keys(npoints)))
         max_size = maximum(ang_npts)
         if size < 0 || size > max_size
             throw("Argument size should be a positive integer: $max_size, got $size ")

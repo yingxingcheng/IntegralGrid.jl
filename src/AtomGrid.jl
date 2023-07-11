@@ -1,8 +1,13 @@
 module AtomicGrid
 
-using IntegralGrid.BaseGrid: AbstractExtendedGrid, Grid, OneDGrid
-using IntegralGrid.Angular: AngularGrid, convert_angular_sizes_to_degrees
+using NPZ
+using IntegralGrid.BaseGrid: AbstractExtendedGrid, Grid, OneDGrid, _getproperty
+using IntegralGrid.Angular: AngularGrid, convert_angular_sizes_to_degrees, _get_size_and_degree
 using IntegralGrid.Utils: convert_cart_to_sph, convert_derivative_from_spherical_to_cartesian, generate_real_spherical_harmonics, generate_derivative_real_spherical_harmonics
+
+export AtomGrid, from_preset, from_pruned, convert_cartesian_to_spherical, integrate_angular_coordinates, spherical_average, radial_component_splines, interpolate
+export _generate_degree_from_radius, _find_l_for_rad_list, _generate_atomic_grid
+export get_shell_grid
 
 mutable struct AtomGrid <: AbstractExtendedGrid
     _grid::Grid
@@ -19,7 +24,7 @@ end
 function AtomGrid(
     rgrid::OneDGrid;
     degrees::Union{AbstractVector{<:Real},Nothing}=nothing,
-    # sizes::Union{AbstractVector{<:Int},Nothing}=nothing,
+    sizes::AbstractVector{<:Int}=Int[],
     center::Union{AbstractVector{<:Real},Nothing}=[0.0, 0.0, 0.0],
     rotate::Int=0,
     use_spherical::Bool=false
@@ -28,11 +33,7 @@ function AtomGrid(
     _input_type_check(rgrid, center)
 
     if rotate != 0 && !(0 <= rotate < 2^32 - length(rgrid.points))
-        throw(
-            ArgumentError(
-                "rotate need to be an integer [0, 2^32 - length(rgrid)] rotate is not within [0, 2^32 - length(rgrid)], got $rotate"
-            )
-        )
+        throw(ArgumentError("rotate need to be an integer [0, 2^32 - length(rgrid)] rotate is not within [0, 2^32 - length(rgrid)], got $rotate"))
     end
     if isnothing(degrees)
         degrees = convert_angular_sizes_to_degrees(sizes)
@@ -45,7 +46,7 @@ function AtomGrid(
         _weights,
         _indices,
         _degrees
-    ) = _generate_atomic_grid(rgrid, degrees, rotate=_rot, use_spherical=use_spherical)
+    ) = _generate_atomic_grid(rgrid, degrees, rotate=rotate, use_spherical=use_spherical)
 
     return AtomGrid(
         Grid(_points, _weights),
@@ -63,7 +64,7 @@ function from_preset(
     rgrid::OneDGrid;
     atnum::Int,
     preset::String,
-    center::Vector{Float64}=[0.0, 0.0, 0.0],
+    center::AbstractVector{<:Real}=[0.0, 0.0, 0.0],
     rotate::Int=0,
     use_spherical::Bool=false
 )
@@ -80,9 +81,9 @@ function from_preset(
     fn_path = joinpath(@__DIR__, "data", "prune_grid", "prune_grid_$(preset).npz")
     _data = npzread(fn_path)
     rad, npt = _data["$(atnum)_rad"], _data["$(atnum)_npt"]
-    degs = convert_angular_sizes_to_degrees(npt, use_spherical)
+    degs = convert_angular_sizes_to_degrees(npt, use_spherical=use_spherical)
     rad_degs = _find_l_for_rad_list(rgrid.points, rad, degs)
-    AtomGrid(
+    return AtomGrid(
         rgrid,
         degrees=rad_degs,
         center=center,
@@ -92,38 +93,32 @@ function from_preset(
 end
 
 function from_pruned(
-    rgrid::OneDGrid,
-    radius::Real;
-    sectors_r::Vector{<:Real},
+    rgrid::OneDGrid;
+    radius::Real,
+    sectors_r::AbstractVector{<:Real},
     sectors_degree::Union{AbstractVector{<:Real},Nothing}=nothing,
     sectors_size::Union{AbstractVector{Int},Nothing}=nothing,
-    center::Vector{<:Real}=[0.0, 0.0, 0.0],
+    center::AbstractVector{<:Real}=[0.0, 0.0, 0.0],
     rotate::Int=0,
     use_spherical::Bool=false
 )
     if isnothing(sectors_degree)
-        sectors_degree = convert_angular_sizes_to_degrees(sectors_size, use_spherical)
+        sectors_degree = convert_angular_sizes_to_degrees(sectors_size, use_spherical=use_spherical)
     end
     center = isnothing(center) ? [0.0, 0.0, 0.0] : center
     _input_type_check(rgrid, center)
-    degrees = _generate_degree_from_radius(
-        rgrid,
-        radius,
-        sectors_r,
-        sectors_degree,
-        use_spherical
-    )
-    AtomGrid(
-        rgrid,
-        degrees=degrees,
-        center=center,
-        rotate=rotate,
-        use_spherical=use_spherical
-    )
+    degrees = _generate_degree_from_radius(rgrid, radius, sectors_r, sectors_degree, use_spherical)
+    return AtomGrid(rgrid, degrees=degrees, center=center, rotate=rotate, use_spherical=use_spherical)
 end
 
+get_l_max(grid::AtomGrid) = maximum(grid.degrees)
+get_n_shells(grid::AtomGrid) = length(grid.degrees)
+Base.getproperty(grid::AtomGrid, key::Symbol) = (
+    _getproperty(grid, key, extended_dict=Dict(:l_max => get_l_max, :n_shells => get_n_shells))
+)
 
-function get_shell_grid(grid::AtomGrid, index::Int, r_sq::Bool=true)
+
+function get_shell_grid(grid::AtomGrid, index::Int; r_sq::Bool=true)
     raw"""Get the spherical integral grid at radial point from specified index.
 
     The spherical integration grid has points scaled with the ith radial point
@@ -144,7 +139,7 @@ function get_shell_grid(grid::AtomGrid, index::Int, r_sq::Bool=true)
         AngularGrid at given radial index position and weights.
 
     """
-    if !(0 ≤ index < length(grid.degrees))
+    if !(1 ≤ index ≤ length(grid.degrees))
         throw(ArgumentError("Index $index should be between 0 and less than number of radial points $(length(grid.degrees))."))
     end
     degree = grid.degrees[index]
@@ -168,7 +163,11 @@ function get_shell_grid(grid::AtomGrid, index::Int, r_sq::Bool=true)
 end
 
 
-function convert_cartesian_to_spherical(grid::AtomGrid, points::Array{Float64,2}=nothing, center::Array{Float64,1}=nothing)
+function convert_cartesian_to_spherical(
+    grid::AtomGrid,
+    points::Union{AbstractVecOrMat{<:Real},Nothing}=nothing,
+    center::Union{AbstractVector{<:Real},Nothing}=nothing
+)
     raw"""
     Convert a set of points from Cartesian to spherical coordinates.
 
@@ -212,7 +211,7 @@ function convert_cartesian_to_spherical(grid::AtomGrid, points::Array{Float64,2}
         points = reshape(points, :, 3)
     end
 
-    center = isnothing(center) ? grid.center : convert(Array{Float64,1}, center)
+    center = isnothing(center) ? grid.center : center
     spherical_points = convert_cart_to_sph(points, center)
 
     # If atomic grid points are being converted, then choose canonical angles (when r=0)
@@ -232,6 +231,214 @@ function convert_cartesian_to_spherical(grid::AtomGrid, points::Array{Float64,2}
     return spherical_points
 end
 
+function integrate_angular_coordinates(grid, func_vals)
+    raw"""
+    Integrate the angular coordinates of a sequence of functions.
+
+    Given a series of functions :math:`f_k \in L^2(\mathbb{R}^3)`, this returns the values
+
+    .. math::
+        f_k(r_i) = \int \int f(r_i, \theta, \phi) \sin(\phi) d\theta d\phi
+
+    on each radial point :math:`r_i` in the atomic grid.
+
+    Parameters
+    ----------
+    func_vals : Array{T,N}
+        The function values evaluated on all :math:`N` points on the atomic grid
+        for many types of functions. This can also be one-dimensional.
+
+    Returns
+    -------
+    Array{T,N-1}
+        The function :math:`f_{...}(r_i)` on each :math:`M` radial points.
+    """
+
+    # Integrate f(r, θ, φ) sin(φ) dθ dφ by multiplying against its weights
+    prod_value = func_vals .* grid.weights  # Multiply weights to the last axis.
+
+    # # Compute the sum along the last axis only and swap axes
+    # radial_coefficients = [
+    #     sum(prod_value[..., grid.indices[i]:grid.indices[i+1]], dims=N)
+    #     for i in 1:grid.n_shells
+    # ]
+    # radial_coefficients = permutedims(hcat(radial_coefficients...), (N, N + 1))  # swap points axes to last
+
+    # Remove the radial weights and r^2 values that are in grid.weights
+    radial_coefficients = radial_coefficients ./ (grid.rgrid.points .^ 2 .* grid.rgrid.weights)
+
+    # # For radius smaller than 1.0e-8, due to division by zero by r^2, we regenerate
+    # # the angular grid and calculate the integral at those points.
+    # r_index = findall(x -> x < 1e-8, grid.rgrid.points)
+    # for i in r_index
+    #     # build angular grid for i-th shell
+    #     agrid = AngularGrid(degree=grid._degs[i], use_spherical=grid.use_spherical)
+    #     values = func_vals[..., grid.indices[i]:grid.indices[i+1]] .* agrid.weights
+    #     radial_coefficients[..., i] = sum(values, dims=N)
+    # end
+
+    return radial_coefficients
+end
+
+function spherical_average(grid, func_vals)
+    f_radial = integrate_angular_coordinates(grid, func_vals)
+    f_radial /= 4.0 * π
+    return CubicSpline(grid.rgrid.points, f_radial)
+end
+
+function radial_component_splines(grid, func_vals::AbstractVector{<:Number})
+    if length(func_vals) != grid.size
+        throw(ArgumentError("The size of values does not match with the size of grid. 
+        The size of value array: $(length(func_vals)). 
+        The size of grid: $(grid.size)"))
+    end
+
+    if isnothing(grid.basis)
+        tmp = convert_cartesian_to_spherical(grid)
+        theta, phi = tmp'[2:end]
+        grid.basis = generate_real_spherical_harmonics(grid.l_max ÷ 2, theta, phi)
+    end
+
+    values = grid.basis .* func_vals'
+    radial_components = integrate_angular_coordinates(grid, values)
+
+    for i in 1:grid.n_shells
+        if grid.degrees[i] != grid.l_max
+            num_nonzero_sph = (grid.degrees[i] ÷ 2 + 1)^2
+            radial_components[num_nonzero_sph+1:end, i] = 0.0
+        end
+    end
+
+    return [CubicSpline(grid.rgrid.points, sph_val) for sph_val in radial_components]
+end
+
+function interpolate(grid, func_vals)
+    splines = grid.radial_component_splines(func_vals)
+
+
+    function interpolate_low(points, deriv=0, deriv_spherical=false, only_radial_deriv=false)
+        # if deriv_spherical && only_radial_deriv
+        #     warn("Since `only_radial_derivs` is true, then only the derivative wrt to" *
+        #          "radius is returned and `deriv_spherical` value is ignored.", stacktrace())
+        # end
+
+        # r_pts, theta, phi = convert_cartesian_to_spherical(points).'
+
+        # r_values = [spline(r_pts, deriv) for spline in splines]
+        # r_sph_harm = generate_real_spherical_harmonics(grid.l_max ÷ 2, theta, phi)
+
+        # if !only_radial_deriv && deriv == 1
+        #     radial_components = [spline(r_pts, 0) for spline in splines]
+        #     deriv_sph_harm = generate_derivative_real_spherical_harmonics(grid.l_max ÷ 2, theta, phi)
+
+        #     deriv_r = [sum(r_values[:, i] .* r_sph_harm[:, :, i]) for i in 1:size(r_values, 2)]
+        #     deriv_theta = [sum(radial_components[:, i] .* deriv_sph_harm[1, :, i]) for i in 1:size(radial_components, 2)]
+        #     deriv_phi = [sum(radial_components[:, i] .* deriv_sph_harm[2, :, i]) for i in 1:size(radial_components, 2)]
+
+        #     if deriv_spherical
+        #         return [deriv_r, deriv_theta, deriv_phi]
+        #     end
+
+        #     derivs = zeros(eltype(deriv_r), length(r_pts), 3)
+        #     for i_pt in 1:length(r_pts)
+        #         radial_i, theta_i, phi_i = r_pts[i_pt], theta[i_pt], phi[i_pt]
+        #         derivs[i_pt, :] = convert_derivative_from_spherical_to_cartesian(
+        #             deriv_r[i_pt], deriv_theta[i_pt], deriv_phi[i_pt], radial_i, theta_i, phi_i)
+        #     end
+        #     return derivs
+        # elseif !only_radial_deriv && deriv != 0
+        #     error("Higher order derivatives are only supported for derivatives" *
+        #           "with respect to the radius. Deriv is $deriv.")
+        # end
+
+        # return [sum(r_values[:, i] .* r_sph_harm[:, :, i]) for i in 1:size(r_values, 2)]
+    end
+
+    return interpolate_low
+end
+
+function _input_type_check(rgrid::OneDGrid, center::AbstractVector{<:Real})
+    if !(rgrid isa OneDGrid)
+        throw(ArgumentError("Argument rgrid is not an instance of OneDGrid, got $(typeof(rgrid))."))
+    end
+    if !isnothing(rgrid.domain) && rgrid.domain[1] < 0
+        throw(ArgumentError("Argument rgrid should have a positive domain, got $(rgrid.domain)"))
+    elseif minimum(rgrid.points) < 0.0
+        throw(ArgumentError("Smallest rgrid.points is negative, got $(minimum(rgrid.points))"))
+    end
+    if size(center) != (3,)
+        throw(ArgumentError("Center should be of shape (3,), got $(size(center))."))
+    end
+end
+
+function _generate_degree_from_radius(
+    rgrid::OneDGrid,
+    radius::Real,
+    r_sectors::AbstractVector{<:Real},
+    deg_sectors::AbstractVector{Int},
+    use_spherical::Bool=false
+)
+    if isempty(deg_sectors)
+        throw(ArgumentError("deg_sectors can't be empty."))
+    end
+    if length(deg_sectors) - length(r_sectors) != 1
+        throw(ArgumentError("degs should have only one more element than r_sectors."))
+    end
+    matched_deg = [
+        _get_size_and_degree(degree=d, size=nothing, use_spherical=use_spherical)[1]
+        for d in deg_sectors
+    ]
+    rad_degs = _find_l_for_rad_list(rgrid.points, radius .* r_sectors, matched_deg)
+    return rad_degs
+end
+
+function _find_l_for_rad_list(radial_arrays, radius_sectors, deg_sectors)
+    position = vec(sum(broadcast(>, reshape(radial_arrays, :, 1), reshape(radius_sectors, 1, :)), dims=2))
+    position .+= 1 # for julia index
+    return deg_sectors[position]
+end
+
+function _generate_atomic_grid(
+    rgrid::OneDGrid,
+    degrees::Union{AbstractVector{<:Real},Nothing};
+    rotate::Int=0,
+    use_spherical::Bool=false
+)
+    if length(degrees) != rgrid.size
+        throw(ArgumentError("The shape of radial grid does not match given degs."))
+    end
+
+    all_points, all_weights = [], []
+    shell_pt_indices = ones(Int, length(degrees) + 1)
+    actual_degrees = zeros(Int, length(degrees))
+
+    for (i, deg_i) in enumerate(degrees)
+        sphere_grid = AngularGrid(degree=deg_i, use_spherical=use_spherical)
+        points, weights = copy(sphere_grid.points), copy(sphere_grid.weights)
+        # push!(actual_degrees, sphere_grid.degree)
+        actual_degrees[i] = sphere_grid.degree
+
+        if rotate == 0
+            # do nothing
+        else
+            throw(ArgumentError("rotate != 0 is not implemented!"))
+            # @assert rotate isa Int
+            # rot_mt = R.random(random_state=rotate + i).as_matrix()
+            # points = points * rot_mt
+        end
+
+        points = points .* rgrid[i].points
+        weights = weights .* rgrid[i].weights .* rgrid[i].points .^ 2
+        shell_pt_indices[i+1] = shell_pt_indices[i] + size(points, 1)
+        push!(all_points, points)
+        push!(all_weights, weights)
+    end
+
+    indices = shell_pt_indices
+    points = vcat(all_points...)
+    weights = vcat(all_weights...)
+    return points, weights, indices, actual_degrees
+end
 
 
 

@@ -10,7 +10,7 @@ export BeckeRTransform, LinearFiniteRTransform, InverseRTransform
 export MultiExpRTransform, KnowlesRTransform, HandyRTransform, HandyModRTransform
 
 
-const TypePoints1D = Union{AbstractVector{<:Real}, <:Real}
+const TypePoints1D = Union{AbstractVector{<:Real},<:Real}
 
 #--------------------------------------------------------------------------------------------------
 # BaseTransform
@@ -34,7 +34,8 @@ function transform_1d_grid(rtf::BaseTransform, oned_grid::OneDGrid)
     if new_domain !== nothing
         # Some transformation (Issue #125) reverses the order of points i.e.
         #    [-1, 1] maps to [infinity, 0].  This sort here fixes the problem here.
-        new_domain = tuple(sort(transform(rtf, oned_grid.domain)))
+        new_domain = sort(transform(rtf, collect(oned_grid.domain)))
+        new_domain = tuple(new_domain...)
     end
     return OneDGrid(new_points, new_weights, new_domain)
 end
@@ -44,8 +45,8 @@ function _convert_inf!(rtf::BaseTransform, array::Union{<:Number,TypePoints1D}; 
         new_v = isinf(array) ? sign(array) * replace_inf : array
     else
         new_v = similar(array)
-        new_v[new_v .== Inf] .= replace_inf
-        new_v[new_v .== -Inf] .= -replace_inf
+        new_v[new_v.==Inf] .= replace_inf
+        new_v[new_v.==-Inf] .= -replace_inf
     end
     return new_v
 end
@@ -57,8 +58,8 @@ mutable struct BeckeRTransform <: BaseTransform
     rmin::Real
     R::Real
     trim_inf::Bool
-    domain::Tuple{<:Real, <:Real}
-    codomain::Tuple{<:Real, <:Real}
+    domain::Tuple{<:Real,<:Real}
+    codomain::Tuple{<:Real,<:Real}
 
 end
 BeckeRTransform(rmin::Real, R::Real) = BeckeRTransform(rmin, R, true, (-1, 1), (rmin, Inf))
@@ -68,7 +69,7 @@ function find_parameter(array::TypePoints1D, rmin::Float64, radius::Float64)
         error("rmin needs to be smaller than radius, rmin: $rmin, radius: $radius.")
     end
     size = length(array)
-    mid_value = ifelse(isodd(size), array[size ÷ 2], (array[size ÷ 2 - 1] + array[size ÷ 2]) / 2)
+    mid_value = ifelse(isodd(size), array[size÷2], (array[size÷2-1] + array[size÷2]) / 2)
     return (radius - rmin) * (1 - mid_value) / (1 + mid_value)
 end
 
@@ -95,7 +96,7 @@ deriv3(rtf::BeckeRTransform, x::TypePoints1D) = 12 * rtf.R ./ (1 .- x) .^ 4
 
 function _convert_inf!(rtf::BeckeRTransform, array::TypePoints1D; replace_inf=1e16)
     if typeof(array) <: Real
-        new_v = isinf(array) ? sign(array) * replace_inf  : array
+        new_v = isinf(array) ? sign(array) * replace_inf : array
     else
         new_v = similar(array)
         @. new_v = ifelse(array == Inf, replace_inf, array)
@@ -111,8 +112,8 @@ end
 mutable struct LinearFiniteRTransform <: BaseTransform
     rmin::Real
     rmax::Real
-    domain::Tuple{<:Real, <:Real}
-    codomain::Tuple{<:Real, <:Real}
+    domain::Tuple{<:Real,<:Real}
+    codomain::Tuple{<:Real,<:Real}
 end
 
 transform(rtf::LinearFiniteRTransform, x::TypePoints1D) = (1 .+ x) * (rtf.rmax - rtf.rmin) / 2 .+ rtf.rmin
@@ -127,8 +128,8 @@ inverse(rtf::LinearFiniteRTransform, r::TypePoints1D) = (2 .* r .- (rtf.rmax + r
 #--------------------------------------------------------------------------------------------------
 mutable struct InverseRTransform <: BaseTransform
     tfm::BaseTransform
-    domain::Tuple{<:Real, <:Real}
-    codomain::Tuple{<:Real, <:Real}
+    domain::Tuple{<:Real,<:Real}
+    codomain::Tuple{<:Real,<:Real}
 
     function InverseRTransform(tfm::BaseTransform)
         return new(tfm, tfm.domain, tfm.codomain)
@@ -175,16 +176,16 @@ end
 # IdentityRTransform
 #--------------------------------------------------------------------------------------------------
 mutable struct IdentityRTransform <: BaseTransform
-    domain::Tuple{<:Real, <:Real}
-    codomain::Tuple{<:Real, <:Real}
+    domain::Tuple{<:Real,<:Real}
+    codomain::Tuple{<:Real,<:Real}
 
 end
 IdentityRTransform() = IdentityRTransform((0, Inf), (0, Inf))
 
 transform(tf::IdentityRTransform, x::TypePoints1D) = x
-deriv(tf::IdentityRTransform, x::TypePoints1D) = typeof(x) <:Real ? 1 : ones(length(x))
-deriv2(tf::IdentityRTransform, x::TypePoints1D) = typeof(x) <:Real ? 0 : zeros(length(x))
-deriv3(tf::IdentityRTransform, x::TypePoints1D) = typeof(x) <:Real ? 0 : zeros(length(x))
+deriv(tf::IdentityRTransform, x::TypePoints1D) = typeof(x) <: Real ? 1 : ones(length(x))
+deriv2(tf::IdentityRTransform, x::TypePoints1D) = typeof(x) <: Real ? 0 : zeros(length(x))
+deriv3(tf::IdentityRTransform, x::TypePoints1D) = typeof(x) <: Real ? 0 : zeros(length(x))
 inverse(tf::IdentityRTransform, r::TypePoints1D) = r
 
 #--------------------------------------------------------------------------------------------------
@@ -193,12 +194,12 @@ inverse(tf::IdentityRTransform, r::TypePoints1D) = r
 mutable struct LinearInfiniteRTransform <: BaseTransform
     rmin::Real
     rmax::Real
-    b::Union{<:Real, Nothing}
-    domain::Tuple{<:Real, <:Real}
-    codomain::Tuple{<:Real, <:Real}
+    b::Union{<:Real,Nothing}
+    domain::Tuple{<:Real,<:Real}
+    codomain::Tuple{<:Real,<:Real}
 end
 
-function LinearInfiniteRTransform(rmin::Real, rmax::Real, b::Union{Float64, Nothing} = nothing)
+function LinearInfiniteRTransform(rmin::Real, rmax::Real, b::Union{Float64,Nothing}=nothing)
     if rmin >= rmax
         throw(ArgumentError("rmin needs to be larger than rmax.\n  rmin: $rmin, rmax: $rmax"))
     end
@@ -241,13 +242,13 @@ end
 mutable struct ExpRTransform <: BaseTransform
     rmin::Real
     rmax::Real
-    b::Union{<:Real, Nothing}
-    domain::Tuple{<:Real, <:Real}
-    codomain::Tuple{<:Real, <:Real}
+    b::Union{<:Real,Nothing}
+    domain::Tuple{<:Real,<:Real}
+    codomain::Tuple{<:Real,<:Real}
 
 end
 
-function ExpRTransform(rmin::Real, rmax::Real, b::Union{<:Real, Nothing}=nothing)
+function ExpRTransform(rmin::Real, rmax::Real, b::Union{<:Real,Nothing}=nothing)
     if rmin < 0 || rmax < 0
         throw(ArgumentError("rmin or rmax need to be positive\n  rmin: $rmin, rmax: $rmax"))
     end
@@ -267,7 +268,7 @@ function set_maximum_parameter_b!(rtf::ExpRTransform, x::TypePoints1D)
 end
 
 function transform(rtf::ExpRTransform, x::TypePoints1D)
-    set_maximum_parameter_b!(rtf,  x)
+    set_maximum_parameter_b!(rtf, x)
     alpha = log(rtf.rmax / rtf.rmin) / rtf.b
     return rtf.rmin * exp.(x * alpha)
 end
@@ -280,7 +281,7 @@ end
 
 function deriv2(rtf::ExpRTransform, x::TypePoints1D)
     set_maximum_parameter_b!(rtf, x)
-    alpha = log(rtf.rmax / rtf.rmin) /rtf.b
+    alpha = log(rtf.rmax / rtf.rmin) / rtf.b
     return deriv(rtf, x) .* alpha
 end
 
@@ -302,12 +303,12 @@ end
 mutable struct PowerRTransform <: BaseTransform
     rmin::Real
     rmax::Real
-    b::Union{<:Real, Nothing}
-    domain::Tuple{<:Real, <:Real}
-    codomain::Tuple{<:Real, <:Real}
+    b::Union{<:Real,Nothing}
+    domain::Tuple{<:Real,<:Real}
+    codomain::Tuple{<:Real,<:Real}
 end
 
-function PowerRTransform(rmin::Real, rmax::Real, b::Union{<:Real, Nothing}=nothing)
+function PowerRTransform(rmin::Real, rmax::Real, b::Union{<:Real,Nothing}=nothing)
     if rmin >= rmax
         throw(ArgumentError("rmin must be smaller rmax."))
     end
@@ -332,31 +333,31 @@ function transform(rtf::PowerRTransform, x::TypePoints1D)
     if power < 2
         @warn "Power need to be larger than 2!"
     end
-    return rtf.rmin * (x .+ 1).^power
+    return rtf.rmin * (x .+ 1) .^ power
 end
 
 function deriv(rtf::PowerRTransform, x::TypePoints1D)
     set_maximum_parameter_b!(rtf, x)
     power = (log(rtf.rmax) - log(rtf.rmin)) / log(rtf.b + 1)
-    return power * rtf.rmin .* (x .+ 1).^(power - 1)
+    return power * rtf.rmin .* (x .+ 1) .^ (power - 1)
 end
 
 function deriv2(rtf::PowerRTransform, x::TypePoints1D)
     set_maximum_parameter_b!(rtf, x)
     power = (log(rtf.rmax) - log(rtf.rmin)) / log(rtf.b + 1)
-    return power * (power - 1) * rtf.rmin .* (x .+ 1).^(power - 2)
+    return power * (power - 1) * rtf.rmin .* (x .+ 1) .^ (power - 2)
 end
 
 function deriv3(rtf::PowerRTransform, x::TypePoints1D)
     set_maximum_parameter_b!(rtf, x)
     power = (log(rtf.rmax) - log(rtf.rmin)) / log(rtf.b + 1)
-    return power * (power - 1) * (power - 2) * rtf.rmin .* (x .+ 1).^(power - 3)
+    return power * (power - 1) * (power - 2) * rtf.rmin .* (x .+ 1) .^ (power - 3)
 end
 
 function inverse(rtf::PowerRTransform, r::TypePoints1D)
     set_maximum_parameter_b!(rtf, r)
     power = (log(rtf.rmax) - log(rtf.rmin)) / log(rtf.b + 1)
-    return (r ./ rtf.rmin).^(1.0 / power) .- 1
+    return (r ./ rtf.rmin) .^ (1.0 / power) .- 1
 end
 
 
@@ -366,8 +367,8 @@ end
 mutable struct HyperbolicRTransform <: BaseTransform
     a::Real
     b::Real
-    domain::Tuple{<:Real, <:Real}
-    codomain::Tuple{<:Real, <:Real}
+    domain::Tuple{<:Real,<:Real}
+    codomain::Tuple{<:Real,<:Real}
 end
 
 function HyperbolicRTransform(a::Real, b::Real)
@@ -426,8 +427,8 @@ mutable struct MultiExpRTransform <: BaseTransform
     rmin::Real
     R::Real
     trim_inf::Bool
-    domain::Tuple{<:Real, <:Real}
-    codomain::Tuple{<:Real, <:Real}
+    domain::Tuple{<:Real,<:Real}
+    codomain::Tuple{<:Real,<:Real}
 end
 
 function MultiExpRTransform(rmin::Real, R::Real; trim_inf::Bool=true)
@@ -472,8 +473,8 @@ mutable struct KnowlesRTransform <: BaseTransform
     R::Real
     k::Int
     trim_inf::Bool
-    domain::Tuple{<:Real, <:Real}
-    codomain::Tuple{<:Real, <:Real}
+    domain::Tuple{<:Real,<:Real}
+    codomain::Tuple{<:Real,<:Real}
 end
 
 function KnowlesRTransform(rmin::Real, R::Real, k::Int; trim_inf::Bool=true)
@@ -507,28 +508,34 @@ end
 function deriv2(rtf::KnowlesRTransform, x::TypePoints1D)
     qi = 1 .+ x
     dr = (
-          rtf.R
-          * rtf.k
-          * (qi .^ (rtf.k - 2))
-          .* (2 ^ rtf.k * (rtf.k - 1) .+ qi .^ rtf.k)
-          ./ (2 ^ rtf.k .- qi .^ rtf.k) .^ 2
-         )
+        rtf.R
+        * rtf.k
+        * (qi .^ (rtf.k - 2))
+        .*
+        (2^rtf.k * (rtf.k - 1) .+ qi .^ rtf.k)
+        ./
+        (2^rtf.k .- qi .^ rtf.k) .^ 2
+    )
     return dr
 end
 
 function deriv3(rtf::KnowlesRTransform, x::TypePoints1D)
     qi = 1 .+ x
     dr = (
-          rtf.R
-          * rtf.k
-          * (qi .^ (rtf.k - 3))
-          .* (
-              4 ^ rtf.k * (rtf.k - 2) * (rtf.k - 1)
-              .+ 2 ^ rtf.k * (rtf.k - 1) * (rtf.k + 4) .* qi .^ rtf.k
-              .+ 2 * qi .^ (2 * rtf.k)
-             )
-          ./ (2 ^ rtf.k .- qi .^ rtf.k) .^ 3
-         )
+        rtf.R
+        * rtf.k
+        * (qi .^ (rtf.k - 3))
+        .*
+        (
+            4^rtf.k * (rtf.k - 2) * (rtf.k - 1)
+            .+
+            2^rtf.k * (rtf.k - 1) * (rtf.k + 4) .* qi .^ rtf.k
+            .+
+            2 * qi .^ (2 * rtf.k)
+        )
+        ./
+        (2^rtf.k .- qi .^ rtf.k) .^ 3
+    )
     return dr
 end
 
@@ -540,8 +547,8 @@ mutable struct HandyRTransform <: BaseTransform
     R::Real
     m::Int
     trim_inf::Bool
-    domain::Tuple{<:Real, <:Real}
-    codomain::Tuple{<:Real, <:Real}
+    domain::Tuple{<:Real,<:Real}
+    codomain::Tuple{<:Real,<:Real}
 end
 
 function HandyRTransform(rmin::Real, R::Real, m::Int; trim_inf::Bool=true)
@@ -575,13 +582,16 @@ end
 
 function deriv2(rtf::HandyRTransform, x::TypePoints1D)
     dr = (
-          4
-          * rtf.m
-          * rtf.R
-          .* (rtf.m .+ x)
-          .* (1 .+ x) .^ (rtf.m - 2)
-          ./ (1 .- x) .^ (rtf.m + 2)
-        )
+        4
+        * rtf.m
+        * rtf.R
+        .*
+        (rtf.m .+ x)
+        .*
+        (1 .+ x) .^ (rtf.m - 2)
+        ./
+        (1 .- x) .^ (rtf.m + 2)
+    )
     if rtf.trim_inf
         dr = _convert_inf!(rtf, dr)
     end
@@ -590,13 +600,16 @@ end
 
 function deriv3(rtf::HandyRTransform, x::TypePoints1D)
     dr = (
-          4
-          * rtf.m
-          * rtf.R
-          .* (1 .+ 6 .* rtf.m .* x .+ 2 .* rtf.m^2 .+ 3 .* x.^2)
-          .* (1 .+ x) .^ (rtf.m - 3)
-          ./ (1 .- x) .^ (rtf.m + 3)
-         )
+        4
+        * rtf.m
+        * rtf.R
+        .*
+        (1 .+ 6 .* rtf.m .* x .+ 2 .* rtf.m^2 .+ 3 .* x .^ 2)
+        .*
+        (1 .+ x) .^ (rtf.m - 3)
+        ./
+        (1 .- x) .^ (rtf.m + 3)
+    )
     if rtf.trim_inf
         dr = _convert_inf!(rtf, dr)
     end
@@ -612,8 +625,8 @@ struct HandyModRTransform <: BaseTransform
     rmax::Real
     m::Int
     trim_inf::Bool
-    domain::Tuple{<:Real, <:Real}
-    codomain::Tuple{<:Real, <:Real}
+    domain::Tuple{<:Real,<:Real}
+    codomain::Tuple{<:Real,<:Real}
 end
 
 function HandyModRTransform(rmin::Real, rmax::Real, m::Int; trim_inf::Bool=true)
@@ -643,9 +656,9 @@ end
 function inverse(rtf::HandyModRTransform, r::TypePoints1D)
     two_m = 2^rtf.m
     size_r = rtf.rmax - rtf.rmin
-    tmp_r =(
-            (r .- rtf.rmin) .* (size_r - two_m + 1) ./ ((r .- rtf.rmin) .* (size_r - two_m) .+ size_r)
-           )
+    tmp_r = (
+        (r .- rtf.rmin) .* (size_r - two_m + 1) ./ ((r .- rtf.rmin) .* (size_r - two_m) .+ size_r)
+    )
     return 2 .* (tmp_r) .^ (1 / rtf.m) .- 1
 end
 
@@ -653,16 +666,18 @@ function deriv(rtf::HandyModRTransform, x::TypePoints1D)
     two_m = 2^rtf.m
     size_r = rtf.rmax - rtf.rmin
     deriv = (
-             -(
-                two_m
-                * rtf.m
-                * (two_m - size_r - 1)
-                * size_r * (1 .+ x) .^ (rtf.m - 1)
-            )
-             ./ (
-                 two_m * (1 - two_m + size_r)
-                 .+ (two_m - size_r) * (1 .+ x) .^ rtf.m) .^ 2
-            )
+        -(
+            two_m
+            * rtf.m
+            * (two_m - size_r - 1)
+            * size_r * (1 .+ x) .^ (rtf.m - 1)
+        )
+        ./
+        (
+            two_m * (1 - two_m + size_r)
+            .+
+            (two_m - size_r) * (1 .+ x) .^ rtf.m) .^ 2
+    )
     if rtf.trim_inf
         deriv[isinf.(deriv)] .= _convert_inf!(rtf, deriv)
     end
@@ -672,48 +687,57 @@ end
 function deriv2(rtf::HandyModRTransform, x::TypePoints1D)
     two_m = 2^rtf.m
     size_r = rtf.rmax - rtf.rmin
-    res= (
-          -(
+    res = (
+        -(
             rtf.m
             * two_m
             * (two_m - size_r - 1)
             * size_r
             * (1 .+ x) .^ (rtf.m - 2)
-            .* (
-              -two_m * (rtf.m - 1) * (two_m - size_r - 1)
-              .- (rtf.m + 1) * (two_m - size_r) .* (1 .+ x) .^ (rtf.m)
-             )
-           )
-          ./ (two_m * (1 - two_m + size_r) .+ (two_m - size_r) * (1 .+ x) .^ rtf.m) .^ 3
-         )
+            .*
+            (
+                -two_m * (rtf.m - 1) * (two_m - size_r - 1)
+                .-
+                (rtf.m + 1) * (two_m - size_r) .* (1 .+ x) .^ (rtf.m)
+            )
+        )
+        ./
+        (two_m * (1 - two_m + size_r) .+ (two_m - size_r) * (1 .+ x) .^ rtf.m) .^ 3
+    )
     return res
 end
 
 function deriv3(rtf::HandyModRTransform, x::TypePoints1D)
     two_m = 2^rtf.m
     size_r = rtf.rmax - rtf.rmin
-    res= (
-          -(
+    res = (
+        -(
             rtf.m
             * two_m
             * size_r
             * (two_m - size_r - 1)
             * (1 .+ x) .^ (rtf.m - 3)
-            .* (
-                2 * two_m * (rtf.m - 2) * (rtf.m - 1) * (1 - two_m + size_r) ^ 2
-                .+ 2^(rtf.m + 2)
+            .*
+            (
+                2 * two_m * (rtf.m - 2) * (rtf.m - 1) * (1 - two_m + size_r)^2
+                .+
+                2^(rtf.m + 2)
                 * (rtf.m - 1)
                 * (rtf.m + 1)
                 * (two_m - 1 - size_r)
                 * (two_m - size_r)
-                .* (1 .+ x) .^ rtf.m
-                .+ (rtf.m + 2)
+                .*
+                (1 .+ x) .^ rtf.m
+                .+
+                (rtf.m + 2)
                 * (rtf.m + 1)
-                * (two_m - size_r) ^ 2
-                .* (x .+ 1) .^ (2 * rtf.m)
-               )
-           )
-          ./ ((two_m * (1 - two_m + size_r) .+ (two_m - size_r) * (1 .+ x) .^ rtf.m)) .^ 4
+                * (two_m - size_r)^2
+                .*
+                (x .+ 1) .^ (2 * rtf.m)
+            )
+        )
+        ./
+        ((two_m * (1 - two_m + size_r) .+ (two_m - size_r) * (1 .+ x) .^ rtf.m)) .^ 4
     )
     return res
 end
