@@ -321,47 +321,48 @@ function radial_component_splines(grid, func_vals::AbstractVector{<:Number})
     return res
 end
 
-function interpolate(grid, func_vals)
+function interpolate(grid, func_vals::AbstractVector{<:Number})
     splines = radial_component_splines(grid, func_vals)
+    NUMPY = pyimport("numpy")
 
 
-    # TODO: fix me
     function interpolate_low(points, deriv=0, deriv_spherical=false, only_radial_deriv=false)
-        # if deriv_spherical && only_radial_deriv
-        #     warn("Since `only_radial_derivs` is true, then only the derivative wrt to" *
-        #          "radius is returned and `deriv_spherical` value is ignored.", stacktrace())
-        # end
+        if deriv_spherical && only_radial_deriv
+            warn("Since `only_radial_derivs` is true, then only the derivative wrt to" *
+                 "radius is returned and `deriv_spherical` value is ignored.")
+        end
 
-        # r_pts, theta, phi = convert_cartesian_to_spherical(points).'
+        sph_pts = convert_cartesian_to_spherical(grid, points)
+        r_pts, theta, phi = sph_pts[:, 1], sph_pts[:, 2], sph_pts[:, 3]
 
-        # r_values = [spline(r_pts, deriv) for spline in splines]
-        # r_sph_harm = generate_real_spherical_harmonics(grid.l_max ÷ 2, theta, phi)
+        r_values = [spline(r_pts, deriv) for spline in splines]
+        r_sph_harm = generate_real_spherical_harmonics(grid.l_max ÷ 2, theta, phi)
 
-        # if !only_radial_deriv && deriv == 1
-        #     radial_components = [spline(r_pts, 0) for spline in splines]
-        #     deriv_sph_harm = generate_derivative_real_spherical_harmonics(grid.l_max ÷ 2, theta, phi)
+        if !only_radial_deriv && deriv == 1
+            radial_components = [spline(r_pts, 0) for spline in splines]
+            deriv_sph_harm = generate_derivative_real_spherical_harmonics(grid.l_max ÷ 2, theta, phi)
 
-        #     deriv_r = [sum(r_values[:, i] .* r_sph_harm[:, :, i]) for i in 1:size(r_values, 2)]
-        #     deriv_theta = [sum(radial_components[:, i] .* deriv_sph_harm[1, :, i]) for i in 1:size(radial_components, 2)]
-        #     deriv_phi = [sum(radial_components[:, i] .* deriv_sph_harm[2, :, i]) for i in 1:size(radial_components, 2)]
+            deriv_r = NUMPY.einsum("ij,ij->j", r_values, r_sph_harm)
+            deriv_theta = NUMPY.einsum("ij,ij->j", radial_components, deriv_sph_harm[1, :, :])
+            deriv_phi = NUMPY.einsum("ij,ij->", radial_components, deriv_sph_harm[2, :, :])
 
-        #     if deriv_spherical
-        #         return [deriv_r, deriv_theta, deriv_phi]
-        #     end
+            if deriv_spherical
+                return cat[deriv_r, deriv_theta, deriv_phi]
+            end
 
-        #     derivs = zeros(eltype(deriv_r), length(r_pts), 3)
-        #     for i_pt in 1:length(r_pts)
-        #         radial_i, theta_i, phi_i = r_pts[i_pt], theta[i_pt], phi[i_pt]
-        #         derivs[i_pt, :] = convert_derivative_from_spherical_to_cartesian(
-        #             deriv_r[i_pt], deriv_theta[i_pt], deriv_phi[i_pt], radial_i, theta_i, phi_i)
-        #     end
-        #     return derivs
-        # elseif !only_radial_deriv && deriv != 0
-        #     error("Higher order derivatives are only supported for derivatives" *
-        #           "with respect to the radius. Deriv is $deriv.")
-        # end
+            derivs = zeros(eltype(deriv_r), length(r_pts), 3)
+            for i_pt in 1:length(r_pts)
+                radial_i, theta_i, phi_i = r_pts[i_pt], theta[i_pt], phi[i_pt]
+                derivs[i_pt, :] = convert_derivative_from_spherical_to_cartesian(
+                    deriv_r[i_pt], deriv_theta[i_pt], deriv_phi[i_pt], radial_i, theta_i, phi_i)
+            end
+            return derivs
+        elseif !only_radial_deriv && deriv != 0
+            throw(ArgumentError("Higher order derivatives are only supported for derivatives" *
+                                "with respect to the radius. Deriv is $(deriv)."))
+        end
 
-        # return [sum(r_values[:, i] .* r_sph_harm[:, :, i]) for i in 1:size(r_values, 2)]
+        return NUMPY.einsum("ij,ij->j", r_values, r_sph_harm)
     end
 
     return interpolate_low

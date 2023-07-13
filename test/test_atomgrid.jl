@@ -1,6 +1,10 @@
 using LinearAlgebra
 using Test
-using IntegralGrid.BaseGrid, IntegralGrid.OnedGrid, IntegralGrid.RTransform, IntegralGrid.AtomicGrid, IntegralGrid.Angular
+using IntegralGrid.BaseGrid
+using IntegralGrid.OnedGrid
+using IntegralGrid.RTransform
+using IntegralGrid.AtomicGrid
+using IntegralGrid.Angular
 using IntegralGrid.Utils
 using Distributions
 using PyCall
@@ -276,16 +280,16 @@ function helper_func_gauss(points; center=nothing)
     return exp.(-(x .^ 2)) .* exp.(-(y .^ 2)) .* exp.(-(z .^ 2))
 end
 
-function helper_func_power(points, deriv=false)
+function helper_func_power(points; deriv=false)
     """Compute function value for test interpolation."""
-    if deriv
+    if deriv == true
         deriv = zeros(size(points, 1), 3)
-        deriv[:, 1] = 4.0 .* points[:, 1]
-        deriv[:, 2] = 6.0 .* points[:, 2]
-        deriv[:, 3] = 8.0 .* points[:, 3]
+        deriv[:, 1] = 4.0 * points[:, 1]
+        deriv[:, 2] = 6.0 * points[:, 2]
+        deriv[:, 3] = 8.0 * points[:, 3]
         return deriv
     end
-    return 2 .* points[:, 1] .^ 2 + 3 .* points[:, 2] .^ 2 + 4 .* points[:, 3] .^ 2
+    return 2 * points[:, 1] .^ 2 + 3 * points[:, 2] .^ 2 + 4 * points[:, 3] .^ 2
 end
 
 function helper_func_power_deriv(points)
@@ -479,6 +483,52 @@ function test_fitting_spherical_harmonics(use_spherical)
     end
 end
 
+function test_interpolation_of_gaussian(center)
+    oned = GaussLegendre(350)
+    btf = BeckeRTransform(0.0001, 1.5)
+    rad = transform_1d_grid(btf, oned)
+    atgrid = AtomGrid(rad, degrees=[31], use_spherical=false)
+    value_array = helper_func_gauss(atgrid.points)
+    npt = 1000
+    r = rand(Uniform(0.01, maximum(rad.points)), npt)
+    theta = rand(Uniform(0, pi), npt)
+    phi = rand(Uniform(0, 2.0 * pi), npt)
+    x = r .* sin.(phi) .* cos.(theta)
+    y = r .* sin.(phi) .* sin.(theta)
+    z = r .* cos.(phi)
+    input_points = hcat(x, y, z)
+    interfunc = interpolate(atgrid, value_array)
+    result = helper_func_gauss(input_points, center=center)
+    expected = interfunc(input_points)
+    @test all(isapprox.(result, expected, atol=1e-4))
+end
+
+
+# function test_cubicspline_and_interp_mol(use_spherical)
+#     # "Test cubicspline interpolation values."
+#     odg = OneDGrid(collect(1:10), ones(10), (0, Inf))
+#     rad = transform_1d_grid(IdentityRTransform(), odg)
+#     #TODO: this is a bug, sector_r cannot be empty list
+#     atgrid = from_pruned(rad, radius=1, sectors_r=[], sectors_degrees=[7], use_spherical=use_spherical)
+# 
+#     values = helper_func_power(atgrid.points)
+#     # spls = fit_values(atgrid, values)
+# 
+#     for i in 1:10
+#         inter_func = interpolate(atgrid, values)
+#         # same result from points and interpolation
+#         @test all(isapprox.(
+#             inter_func(atgrid.points[atgrid.indices[i]:atgrid.indices[i+1]-1]),
+#             values[atgrid.indices[i]:atgrid.indices[i+1]-1])
+#         )
+#     end
+# end
+# 
+# @testset "test_cubicspline_and_interp_mol" begin
+#     test_cubicspline_and_interp_mol(false)
+#     # test_cubicspline_and_interp_mol(true)
+# end
+
 
 @testset "AtomGrid.jl" begin
     test_total_atomic_grid()
@@ -506,4 +556,11 @@ end
 @testset "Fitting Spherical Harmonics" begin
     test_fitting_spherical_harmonics(false)
     test_fitting_spherical_harmonics(true)
+end
+
+@testset "Interpolation" begin
+    centers_values = [0.0 0.0 0.0; 1e-2 0.0 0.0; 1e-2 0.0 -1e-2]
+    for center in eachrow(centers_values)
+        test_interpolation_of_gaussian(center)
+    end
 end
