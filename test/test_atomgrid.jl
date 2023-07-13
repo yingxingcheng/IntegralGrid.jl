@@ -1,6 +1,9 @@
 using LinearAlgebra
 using Test
 using IntegralGrid.BaseGrid, IntegralGrid.OnedGrid, IntegralGrid.RTransform, IntegralGrid.AtomicGrid, IntegralGrid.Angular
+using IntegralGrid.Utils
+using Distributions
+using PyCall
 
 function test_total_atomic_grid()
     # Normal initialization test.
@@ -261,28 +264,246 @@ function test_spherical_complete(use_spherical)
     end
 end
 
-@testset "Conversion Tests" begin
-    # @testset "test_get_shell_grid" begin
-    #     test_get_shell_grid(false)
-    #     test_get_shell_grid(true)
-    # end
 
-    # @testset "test_convert_points_to_sph" begin
-    #     test_convert_points_to_sph()
-    # end
+function helper_func_gauss(points; center=nothing)
+    """Compute gauss function value for test interpolation."""
+    if isnothing(center)
+        center = [0.0, 0.0, 0.0]
+    end
+    pts = points .- reshape(center, :, 3)
+    x, y, z = pts[:, 1], pts[:, 2], pts[:, 3]
 
-    @testset "test_spherical_complete" begin
-        test_spherical_complete(false)
-        test_spherical_complete(true)
+    return exp.(-(x .^ 2)) .* exp.(-(y .^ 2)) .* exp.(-(z .^ 2))
+end
+
+function helper_func_power(points, deriv=false)
+    """Compute function value for test interpolation."""
+    if deriv
+        deriv = zeros(size(points, 1), 3)
+        deriv[:, 1] = 4.0 .* points[:, 1]
+        deriv[:, 2] = 6.0 .* points[:, 2]
+        deriv[:, 3] = 8.0 .* points[:, 3]
+        return deriv
+    end
+    return 2 .* points[:, 1] .^ 2 + 3 .* points[:, 2] .^ 2 + 4 .* points[:, 3] .^ 2
+end
+
+function helper_func_power_deriv(points)
+    """Compute function derivative for test derivation."""
+    r = vecnorm(points, dims=2)
+    dxf = 4 * points[:, 1] .* points[:, 1] ./ r
+    dyf = 6 * points[:, 2] .* points[:, 2] ./ r
+    dzf = 8 * points[:, 3] .* points[:, 3] ./ r
+    return dxf + dyf + dzf
+end
+
+function test_integrating_angular_components_spherical(use_spherical)
+    """Test integrating angular components of a spherical harmonics of maximum degree 3."""
+    odg = OneDGrid([0.0, 1e-16, 1e-8, 1e-4, 1e-2], ones(5), (0, Inf))
+    atom_grid = AtomGrid(odg, degrees=[3], use_spherical=use_spherical)
+    spherical = convert_cartesian_to_spherical(atom_grid)
+    # Evaluate all spherical harmonics on the atomic grid points (r_i, theta_j, phi_j).
+    spherical_harmonics = generate_real_spherical_harmonics(
+        3, spherical[:, 2], spherical[:, 3]  # theta, phi points
+    )
+    # Convert to three-dimensional array (Degrees, Order, Points)
+    spherical_array = zeros((3, 2 * 3 + 1, size(atom_grid.points, 1)))
+    spherical_array[1, 1, :] = spherical_harmonics[1, :]  # (l,m) = (0,0)
+    spherical_array[2, 1, :] = spherical_harmonics[2, :]  # = (1, 0)
+    spherical_array[2, 2, :] = spherical_harmonics[3, :]  # = (1, 1)
+    spherical_array[2, 3, :] = spherical_harmonics[4, :]  # = (1, -1)
+    spherical_array[3, 1, :] = spherical_harmonics[5, :]  # = (2, 0)
+    spherical_array[3, 2, :] = spherical_harmonics[6, :]  # = (2, 2)
+    spherical_array[3, 3, :] = spherical_harmonics[7, :]  # = (2, 1)
+    spherical_array[3, 4, :] = spherical_harmonics[8, :]  # = (2, -2)
+    spherical_array[3, 5, :] = spherical_harmonics[9, :]  # = (2, -1)
+
+    integral = integrate_angular_coordinates(atom_grid, spherical_array)
+    @test size(integral) == (3, 2 * 3 + 1, 5)
+    # Assert that all spherical harmonics except when l=0,m=0 are all zero.
+    @test all(isapprox.(integral[1, 1, :], sqrt(4.0 * pi)))
+    @test all(isapprox.(integral[1, 2:end, :], 0.0))
+    @test all(isapprox.(integral[2:end, :, :], 0.0, atol=1e-7))
+end
+
+
+function test_integrating_angular_components_with_gaussian_projected_to_spherical_harmonic(numb_rads, degs)
+    odg = OneDGrid(collect(range(0.0, stop=1.0, length=numb_rads)), ones(numb_rads), (0, Inf))
+    atom_grid = AtomGrid(odg, degrees=[degs])
+    func_vals = helper_func_gauss(atom_grid.points)
+
+    # Generate spherical harmonic basis
+    sph_coords = convert_cartesian_to_spherical(atom_grid)
+    theta, phi = sph_coords[:, 2], sph_coords[:, 3]
+    degrees = div(degs, 2)
+    basis = generate_real_spherical_harmonics(degrees, theta, phi)
+
+    # Multiply spherical harmonic basis with the Gaussian function values to project.
+    values = basis .* reshape(func_vals, 1, :)
+
+    # Take the integral of the projection of the Gaussian onto spherical harmonic basis.
+    integrals = integrate_angular_coordinates(atom_grid, values)
+
+    # Since the Gaussian is spherical, then this is just the integral of a spherical harmonic
+    # thus whenever l != 0, we have it is zero everywhere.
+    @test all(isapprox.(integrals[2:end, :], 0.0, atol=1e-6))
+
+    # Integral of e^(-r^2) * int sin(theta) dtheta dphi / (sqrt(4 pi))
+    @test all(isapprox.(integrals[1, :], exp.(-atom_grid.rgrid.points .^ 2.0) .* (4.0 * π)^0.5))
+end
+
+function test_integrating_angular_components_with_offcentered_gaussian()
+    numb_rads, degs = 50, 10
+
+    # Go from 1e-3, since it is zero
+    odg = OneDGrid(collect(range(1e-3, stop=1.0, length=numb_rads)), ones(numb_rads), (0, Inf))
+    atom_grid = AtomGrid(odg, degrees=[degs])
+
+    # Since it is off-centered, one of the l=1, (p-z orbital) would be non-zero
+    center = [0.0, 0.0, 0.1]
+    func_vals = helper_func_gauss(atom_grid.points, center=center)
+
+    # Generate spherical harmonic basis
+    sph_coords = convert_cartesian_to_spherical(atom_grid)
+    theta, phi = sph_coords[:, 2], sph_coords[:, 3]
+    degrees = div(degs, 2)
+    basis = generate_real_spherical_harmonics(degrees, theta, phi)
+
+    # Multiply spherical harmonic basis with the Gaussian function values to project.
+    values = basis .* reshape(func_vals, 1, :)
+
+    # Take the integral of the projection of the Gaussian onto spherical harmonic basis.
+    integrals = integrate_angular_coordinates(atom_grid, values)
+
+    # Integral of e^(-r^2) * int sin(θ) dθ dφ / (sqrt(4π))
+    @test all(integrals[2, :] .> 1e-5)  # pz-orbital should be non-zero
+    @test all(integrals[3, :] .< 1e-5)  # px, py-orbital should be zero
+    @test all(integrals[4, :] .< 1e-5)
+end
+
+
+function test_spherical_average_of_gaussian(use_spherical)
+    """Test spherical average of a Gaussian (radial) function is itself and its integral."""
+
+    # construct helper function
+    function func(sph_points)
+        return exp.(-sph_points[:, 1] .^ 2.0)
+    end
+
+    # Construct Radial Grid and atomic grid with spherical harmonics of degree 10
+    #   for all points.
+    oned_grid = collect(0.0:0.001:5.0)
+    rad = OneDGrid(oned_grid, ones(length(oned_grid)), (0, Inf))
+    atgrid = AtomGrid(rad, degrees=[5], use_spherical=use_spherical)
+    spherical_pts = convert_cartesian_to_spherical(atgrid, atgrid.points)
+    func_values = func(spherical_pts)
+    spherical_avg = spherical_average(atgrid, func_values)
+    # Test that the spherical average of a Gaussian is itself
+    numb_pts = 1000
+    random_rad_pts = rand(Uniform(0, 1.5), numb_pts, 3)
+    # random_rad_pts = rand(Uniform(0.0, 1.5), numb_pts, 3)
+    spherical_avg2 = spherical_avg(random_rad_pts[:, 1])
+    func_vals = func(random_rad_pts)
+    @test all(isapprox.(spherical_avg2, func_vals, atol=1e-4))
+
+    # Test the integral of spherical average is the integral of Gaussian e^(-x^2)e^(-y^2)...
+    #   from -infinity to infinity which is equal to pi^(3/2)
+    NUMPY = pyimport("numpy")
+    integral = 4.0 * π * NUMPY.trapz(spherical_avg(oned_grid) .* oned_grid .^ 2.0, x=oned_grid)
+    actual_integral = sqrt(π)^3.0
+    @test isapprox(actual_integral, integral)
+end
+
+function test_spherical_average_of_spherical_harmonic()
+    """Test spherical average of spherical harmonic is zero."""
+
+    # construct helper function
+    function func(sph_points)
+        # Spherical harmonic of order 6 and magnetic 0
+        r, phi, theta = sph_points[:, 1], sph_points[:, 2], sph_points[:, 3]
+        return sqrt(13) / (sqrt(π) * 32) * (231 * cos.(theta) .^ 6.0 .- 315 * cos.(theta) .^ 4.0 .+ 105 * cos.(theta) .^ 2.0 .- 5.0)
+    end
+
+    # Construct Radial Grid and atomic grid with spherical harmonics of degree 10
+    #   for all points.
+    oned_grid = collect(0.0:0.001:5.0)
+    rad = OneDGrid(oned_grid, ones(length(oned_grid)), (0, Inf))
+    atgrid = AtomGrid(rad, degrees=[10])
+    spherical_pts = convert_cartesian_to_spherical(atgrid, atgrid.points)
+    func_values = func(spherical_pts)
+
+    spherical_avg = spherical_average(atgrid, func_values)
+
+    # Test that the spherical average of a spherical harmonic is zero.
+    numb_pts = 1000
+    random_rad_pts = rand(Uniform(0.02, π), numb_pts, 3)
+    spherical_avg2 = spherical_avg(random_rad_pts[:, 1])
+    @test all(isapprox.(spherical_avg2, 0.0, atol=1e-4))
+end
+
+
+function test_fitting_spherical_harmonics(use_spherical)
+    max_degree = 10  # Maximum degree
+    rad = OneDGrid(collect(range(0.0, stop=1.0, length=10)), ones(10), (0, Inf))
+    atom_grid = AtomGrid(rad, degrees=[max_degree], use_spherical=use_spherical)
+    max_degree = atom_grid.l_max
+    spherical = convert_cartesian_to_spherical(atom_grid)
+
+    # Evaluate all spherical harmonics on the atomic grid points (r_i, theta_j, phi_j).
+    spherical_harmonics = generate_real_spherical_harmonics(
+        max_degree, spherical[:, 2], spherical[:, 3]  # theta, phi points
+    )
+
+    i = 1
+    # Go through each spherical harmonic up to max_degree // 2 and check if projection
+    # for its radial component is one and the rest are all zeros.
+    for l_value in 0:max_degree÷2
+        for _m in 1:2*l_value+1
+            spherical_harm = spherical_harmonics[i, :]
+            radial_components = radial_component_splines(atom_grid, spherical_harm)
+            @test length(radial_components) == (atom_grid.l_max ÷ 2 + 1)^2.0
+
+            radial_pts = collect(0.0:0.01:1.0)
+            # Go through each (l, m)
+            for (j, radial_comp) in enumerate(radial_components)
+                # If the current index is j, then projection of spherical harmonic
+                # onto itself should be all ones, else they are all zero.
+                if i == j
+                    @test all(isapprox.(radial_comp(radial_pts), 1.0))
+                else
+                    @test all(isapprox.(radial_comp(radial_pts), 0.0, atol=1e-8))
+                end
+            end
+            i += 1
+        end
     end
 end
 
 
-# @testset "Utils.jl" begin
-#     test_total_atomic_grid()
-#     test_from_predefined() 
-#     test_from_pruned_with_degs_and_size() 
-#     test_find_l_for_rad_list() 
-#     test_generate_atomic_grid() 
-#     test_atomic_grid() 
-# end
+@testset "AtomGrid.jl" begin
+    test_total_atomic_grid()
+    test_from_predefined()
+    test_from_pruned_with_degs_and_size()
+    test_find_l_for_rad_list()
+    test_generate_atomic_grid()
+    test_atomic_grid()
+    test_get_shell_grid(false)
+    test_get_shell_grid(true)
+    test_convert_points_to_sph()
+    test_spherical_complete(false)
+    test_spherical_complete(true)
+    test_integrating_angular_components_spherical(false)
+    test_integrating_angular_components_spherical(true)
+    test_integrating_angular_components_with_gaussian_projected_to_spherical_harmonic(10, 2)
+    test_integrating_angular_components_with_gaussian_projected_to_spherical_harmonic(10, 5)
+    test_integrating_angular_components_with_gaussian_projected_to_spherical_harmonic(10, 10)
+    test_integrating_angular_components_with_offcentered_gaussian()
+    test_spherical_average_of_gaussian(false)
+    test_spherical_average_of_gaussian(true)
+    test_spherical_average_of_spherical_harmonic()
+end
+
+@testset "Fitting Spherical Harmonics" begin
+    test_fitting_spherical_harmonics(false)
+    test_fitting_spherical_harmonics(true)
+end

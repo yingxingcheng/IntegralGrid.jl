@@ -578,14 +578,14 @@ end
 
 function convert_derivative_from_spherical_to_cartesian(deriv_r::Real, deriv_theta::Real, deriv_phi::Real, r::Real, theta::Real, phi::Real)
     jacobian = reshape([
-            cos(theta) * sin(phi), 
-            -sin(theta) / (r * sin(phi)), 
+            cos(theta) * sin(phi),
+            -sin(theta) / (r * sin(phi)),
             cos(theta) * cos(phi) / r,
-            sin(theta) * sin(phi), 
+            sin(theta) * sin(phi),
             cos(theta) / (r * sin(phi)),
             sin(theta) * cos(phi) / r,
-            cos(phi), 
-            0.0, 
+            cos(phi),
+            0.0,
             -sin(phi) / r,
         ], (3, 3))
     # If the radial component is zero, then put all zeros on the derivs of theta and phi
@@ -627,12 +627,12 @@ function convert_cart_to_sph(points, center=nothing)
 
     """
     if ndims(points) != 2 || size(points)[2] != 3
-        error("points array requires shape (N, 3), got: $(ndims(points))")
+        throw(ArgumentError("points array requires shape (N, 3), got: ($(ndims(points)), $(size(points)[2]) )"))
     end
 
-    center = center === nothing ? zeros(Float64, 3) : center
+    center = isnothing(center) ? zeros(Float64, 3) : center
     if length(center) != 3
-        error("center needs to be of length (3), got:$(center)")
+        throw(ArgumentError("center needs to be of length (3), got:$(length(center))"))
     end
 
     relat_pts = points .- center'

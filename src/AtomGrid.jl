@@ -4,10 +4,12 @@ using NPZ
 using IntegralGrid.BaseGrid: AbstractExtendedGrid, Grid, OneDGrid, _getproperty
 using IntegralGrid.Angular: AngularGrid, convert_angular_sizes_to_degrees, _get_size_and_degree
 using IntegralGrid.Utils: convert_cart_to_sph, convert_derivative_from_spherical_to_cartesian, generate_real_spherical_harmonics, generate_derivative_real_spherical_harmonics
+using PyCall
+
 
 export AtomGrid, from_preset, from_pruned, convert_cartesian_to_spherical, integrate_angular_coordinates, spherical_average, radial_component_splines, interpolate
 export _generate_degree_from_radius, _find_l_for_rad_list, _generate_atomic_grid
-export get_shell_grid
+export get_shell_grid, getproperty
 
 mutable struct AtomGrid <: AbstractExtendedGrid
     _grid::Grid
@@ -203,7 +205,7 @@ function convert_cartesian_to_spherical(
 
     is_atomic = false
     if isnothing(points)
-        points = AtomGrid.points
+        points = grid.points
         is_atomic = true
     end
 
@@ -221,69 +223,69 @@ function convert_cartesian_to_spherical(
         r_index = findall(x -> x == 0.0, grid.rgrid.points)
         for i in r_index
             # build angular grid for the degree at r=0
-            agrid = AngularGrid(degree=grid._degs[i], use_spherical=grid.use_spherical)
-            start_index = grid._indices[i]
-            final_index = grid._indices[i+1]
-            spherical_points[start_index:final_index, 2:end] = convert_cart_to_sph(agrid.points[:, 2:end])[:, 2:end]
+            agrid = AngularGrid(degree=grid.degrees[i], use_spherical=grid.use_spherical)
+            start_index = grid.indices[i]
+            final_index = grid.indices[i+1]
+            spherical_points[start_index:final_index-1, 2:end] .= convert_cart_to_sph(agrid.points)[:, 2:end]
         end
     end
 
     return spherical_points
 end
 
-function integrate_angular_coordinates(grid, func_vals)
-    raw"""
-    Integrate the angular coordinates of a sequence of functions.
 
-    Given a series of functions :math:`f_k \in L^2(\mathbb{R}^3)`, this returns the values
+function reshape_for_broadcast(array_dim::Int, weights::AbstractVector)
+    # Create a shape compatible for broadcasting with func_vals
+    reshape_dims = ones(Int, array_dim)
+    reshape_dims[end] = length(weights)
 
-    .. math::
-        f_k(r_i) = \int \int f(r_i, \theta, \phi) \sin(\phi) d\theta d\phi
+    # Reshape weights to the appropriate size for broadcasting
+    weights_reshaped = reshape(weights, tuple(reshape_dims...))
+    return weights_reshaped
+end
 
-    on each radial point :math:`r_i` in the atomic grid.
+function integrate_angular_coordinates(grid::AtomGrid, func_vals::AbstractArray{<:Real})
+    if ndims(func_vals) == 1
+        func_vals = reshape(func_vals, 1, :)
+    end
+    _ndim = ndims(func_vals)
+    weights_reshaped = reshape_for_broadcast(_ndim, grid.weights)
+    prod_value = func_vals .* weights_reshaped
 
-    Parameters
-    ----------
-    func_vals : Array{T,N}
-        The function values evaluated on all :math:`N` points on the atomic grid
-        for many types of functions. This can also be one-dimensional.
+    radial_coefficients = []
+    for i in 1:grid.n_shells
+        # Get a slice of the function values for the current shell
+        res = sum(prod_value[[Colon() for _ in 1:_ndim-1]..., grid.indices[i]:grid.indices[i+1]-1], dims=_ndim)
+        @assert ndims(res) == _ndim && size(res, _ndim) == 1
+        push!(radial_coefficients, res)
+    end
 
-    Returns
-    -------
-    Array{T,N-1}
-        The function :math:`f_{...}(r_i)` on each :math:`M` radial points.
-    """
+    # Convert to array and adjust the size
+    radial_coefficients = cat(radial_coefficients..., dims=_ndim)
 
-    # Integrate f(r, θ, φ) sin(φ) dθ dφ by multiplying against its weights
-    prod_value = func_vals .* grid.weights  # Multiply weights to the last axis.
+    # Divide by r^2 and weights
+    r_weights = grid.rgrid.points .^ 2 .* grid.rgrid.weights
+    r_weights_reshaped = reshape_for_broadcast(_ndim, r_weights)
+    radial_coefficients = radial_coefficients ./ r_weights_reshaped
 
-    # # Compute the sum along the last axis only and swap axes
-    # radial_coefficients = [
-    #     sum(prod_value[..., grid.indices[i]:grid.indices[i+1]], dims=N)
-    #     for i in 1:grid.n_shells
-    # ]
-    # radial_coefficients = permutedims(hcat(radial_coefficients...), (N, N + 1))  # swap points axes to last
-
-    # Remove the radial weights and r^2 values that are in grid.weights
-    radial_coefficients = radial_coefficients ./ (grid.rgrid.points .^ 2 .* grid.rgrid.weights)
-
-    # # For radius smaller than 1.0e-8, due to division by zero by r^2, we regenerate
-    # # the angular grid and calculate the integral at those points.
-    # r_index = findall(x -> x < 1e-8, grid.rgrid.points)
-    # for i in r_index
-    #     # build angular grid for i-th shell
-    #     agrid = AngularGrid(degree=grid._degs[i], use_spherical=grid.use_spherical)
-    #     values = func_vals[..., grid.indices[i]:grid.indices[i+1]] .* agrid.weights
-    #     radial_coefficients[..., i] = sum(values, dims=N)
-    # end
-
+    # For small radii
+    r_index = findall(x -> x < 1e-8, grid.rgrid.points)
+    for i in r_index
+        agrid = AngularGrid(degree=grid.degrees[i], use_spherical=grid.use_spherical)
+        _weights_reshaped = reshape_for_broadcast(_ndim, agrid.weights)
+        values = func_vals[[Colon() for _ in 1:_ndim-1]..., grid.indices[i]:grid.indices[i+1]-1] .* _weights_reshaped
+        radial_coefficients[[Colon() for _ in 1:_ndim-1]..., i] .= sum(values, dims=_ndim)
+    end
     return radial_coefficients
 end
 
-function spherical_average(grid, func_vals)
+function spherical_average(grid, func_vals::AbstractVector{<:Number})
     f_radial = integrate_angular_coordinates(grid, func_vals)
     f_radial /= 4.0 * π
-    return CubicSpline(grid.rgrid.points, f_radial)
+    x = grid.rgrid.points
+    y = vec(f_radial)
+    SCIPY_LIB = pyimport("scipy.interpolate")
+    return SCIPY_LIB.CubicSpline(x=x, y=y)
 end
 
 function radial_component_splines(grid, func_vals::AbstractVector{<:Number})
@@ -294,28 +296,36 @@ function radial_component_splines(grid, func_vals::AbstractVector{<:Number})
     end
 
     if isnothing(grid.basis)
-        tmp = convert_cartesian_to_spherical(grid)
-        theta, phi = tmp'[2:end]
+        sph_pts = convert_cartesian_to_spherical(grid)
+        theta, phi = sph_pts[:, 2], sph_pts[:, 3]
         grid.basis = generate_real_spherical_harmonics(grid.l_max ÷ 2, theta, phi)
     end
 
-    values = grid.basis .* func_vals'
+    values = grid.basis .* reshape(func_vals, 1, :)
     radial_components = integrate_angular_coordinates(grid, values)
 
     for i in 1:grid.n_shells
         if grid.degrees[i] != grid.l_max
             num_nonzero_sph = (grid.degrees[i] ÷ 2 + 1)^2
-            radial_components[num_nonzero_sph+1:end, i] = 0.0
+            radial_components[num_nonzero_sph+1:end, i] .= 0.0
         end
     end
 
-    return [CubicSpline(grid.rgrid.points, sph_val) for sph_val in radial_components]
+    SCIPY_LIB = pyimport("scipy.interpolate")
+    res = []
+    for y in eachrow(radial_components)
+        x = grid.rgrid.points
+        push!(res, SCIPY_LIB.CubicSpline(x=x, y=vec(y)))
+    end
+    # return [SCIPY_LIB.CubicSpline(x=grid.rgrid.points, y=sph_val) for sph_val in radial_components]
+    return res
 end
 
 function interpolate(grid, func_vals)
-    splines = grid.radial_component_splines(func_vals)
+    splines = radial_component_splines(grid, func_vals)
 
 
+    # TODO: fix me
     function interpolate_low(points, deriv=0, deriv_spherical=false, only_radial_deriv=false)
         # if deriv_spherical && only_radial_deriv
         #     warn("Since `only_radial_derivs` is true, then only the derivative wrt to" *
