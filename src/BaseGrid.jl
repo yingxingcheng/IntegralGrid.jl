@@ -1,6 +1,8 @@
 module BaseGrid
 
+using PyCall
 using LinearAlgebra, NearestNeighbors, NPZ
+using IntegralGrid.Utils
 
 export AbstractGrid, AbstractExtendedGrid
 export Grid, LocalGrid, OneDGrid
@@ -204,9 +206,9 @@ end
 
 function moments(
     grid::AbstractGrid,
-    orders,
-    centers,
-    func_vals,
+    orders::Union{<:Int,AbstractVector{<:Int}},
+    centers::AbstractMatrix{<:Real},
+    func_vals::AbstractVector{<:Number},
     type_mom::String="cartesian",
     return_orders::Bool=false
 )
@@ -216,26 +218,28 @@ function moments(
     if ndims(centers) != 2
         throw(ArgumentError("centers should have dimension one or two."))
     end
-    if length(grid.points) != length(centers)
+    if size(grid.points, 2) != size(centers, 2)
         throw(ArgumentError("The dimension of the grid should match the dimension of the centers."))
     end
-    if length(func_vals) != legnth(grid.points)
+    if length(func_vals) != size(grid.points, 1)
         throw(ArgumentError("The length of function values should match the number of points in the grid."))
     end
     if type_mom == "pure-radial" && orders == 0
         throw(ArgumentError("The n/order parameter for pure-radial multipole moments should be positive."))
     end
 
-    if typeof(orders) <: Int || typeof(orders) <: Int32 || typeof(orders) <: Int64
-        orders = (0:orders) |> collect
-        if type_mom == "pure-radial"
-            orders = orders[2:end]
+    if typeof(orders) <: Int
+        if type_mom != "pure-radial"
+            orders = collect(0:orders)
+        else
+            orders = collect(1:orders)
         end
     else
-        error("Orders should be either an integer, list, or numpy array.")
+        throw(ArgumentError("Orders should be either an integer, list, or numpy array."))
     end
 
-    dim = shape(grid.points)[1]
+    NUMPY = pyimport("numpy")
+    dim = size(grid.points, 2)
     all_orders = generate_orders_horton_order(orders[1], type_mom, dim)
     for l_ord in orders[2:end]
         all_orders = vcat(all_orders, generate_orders_horton_order(l_ord, type_mom, dim))
@@ -243,32 +247,43 @@ function moments(
 
     integrals = []
     for center in eachrow(centers)
-        centered_pts = grid.points .- center
+        centered_pts = grid.points .- reshape(center, :, dim)
 
         if type_mom == "cartesian"
-            cent_pts_with_order = centered_pts .^ all_orders'
-            cent_pts_with_order = prod(cent_pts_with_order, dims=2)
-            integral = sum(cent_pts_with_order .* func_vals .* grid.weights, dims=1)
+            cent_pts_with_order = reshape(centered_pts, :, size(centered_pts, 1), size(centered_pts, 2)) .^ reshape(all_orders, size(all_orders, 1), :, size(all_orders, 2))
+            cent_pts_with_order = NUMPY.prod(cent_pts_with_order, axis=2)
+            integral = NUMPY.einsum("ln,n,n->l", cent_pts_with_order, func_vals, grid.weights)
         elseif type_mom == "radial" || type_mom == "pure" || type_mom == "pure-radial"
-            cent_pts_with_order = vec(norm.(centered_pts, dims=2))
+            cent_pts_with_order = NUMPY.linalg.norm(centered_pts, axis=1)
 
             if type_mom == "pure" || type_mom == "pure-radial"
                 sph_pts = convert_cart_to_sph(centered_pts)
                 solid_harm = solid_harmonics(orders[end], sph_pts)
 
                 if type_mom == "pure"
-                    integral = sum(solid_harm .* func_vals .* grid.weights, dims=1)
+                    integral = NUMPY.einsum("ln, n, n->l", solid_harm, func_vals, grid.weights)
                 elseif type_mom == "pure-radial"
-                    n_princ, l_degrees, m_orders = eachcol(all_orders)
-                    indices = l_degrees .^ 2
-                    indices[m_orders.>0] .+= 2 .* m_orders[m_orders.>0] .- 1
-                    indices[m_orders.<=0] .+= 2 .* abs.(m_orders[m_orders.<=0])
-                    cent_pts_with_order = cent_pts_with_order .^ n_princ'
-                    integral = sum(cent_pts_with_order .* solid_harm[indices] .* func_vals .* grid.weights, dims=1)
+                    n_princ, l_degrees, m_orders = all_orders[:, 1], all_orders[:, 2], all_orders[:, 3]
+                    indices = l_degrees .^ 2 .+ 1 # +1 for julia index
+                    indices[m_orders.>0] .+= 2 * m_orders[m_orders.>0] .- 1
+                    indices[m_orders.<=0] .+= 2 * abs.(m_orders[m_orders.<=0])
+                    cent_pts_with_order = reshape(cent_pts_with_order, :, size(cent_pts_with_order, 1)) .^ reshape(n_princ, size(n_princ, 1), :)
+                    # integral = sum(cent_pts_with_order .* solid_harm[indices] .* func_vals .* grid.weights, dims=1)
+                    integral = NUMPY.einsum(
+                        "ln,ln,n,n->l",
+                        cent_pts_with_order,
+                        solid_harm[indices, :],
+                        func_vals,
+                        grid.weights,
+                    )
+
                 end
             elseif type_mom == "radial"
-                cent_pts_with_order = cent_pts_with_order .^ vec(all_orders)
-                integral = sum(cent_pts_with_order .* func_vals .* grid.weights, dims=1)
+                all_orders = vec(all_orders')
+                cent_pts_with_order = reshape(cent_pts_with_order, :, size(cent_pts_with_order, 1)) .^ reshape(all_orders, size(all_orders, 1), :)
+                # integral = sum(cent_pts_with_order .* func_vals .* grid.weights, dims=1)
+                integral = NUMPY.einsum("ln,n,n->l", cent_pts_with_order, func_vals, grid.weights)
+
             end
         end
 
@@ -276,11 +291,21 @@ function moments(
     end
 
     if return_orders
-        return hcat(integrals...)', all_orders
+        return hcat(integrals...), all_orders
     end
 
-    return hcat(integrals...)'  # output has shape (L, Number of centers)
+    return hcat(integrals...)  # output has shape (L, Number of centers)
 end
+
+
+moments(
+    grid::AbstractGrid;
+    orders::Union{<:Int,AbstractVector{<:Int}},
+    centers::AbstractMatrix{<:Real},
+    func_vals::AbstractVector{<:Number},
+    type_mom::String="cartesian",
+    return_orders::Bool=false
+) = moments(grid, orders, centers, func_vals, type_mom, return_orders)
 
 
 function save(grid::AbstractGrid, filename::String)

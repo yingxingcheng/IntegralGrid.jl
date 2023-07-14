@@ -97,7 +97,7 @@ end
 function from_pruned(
     rgrid::OneDGrid;
     radius::Real,
-    sectors_r::AbstractVector{<:Real},
+    sectors_r::AbstractVector,
     sectors_degree::Union{AbstractVector{<:Real},Nothing}=nothing,
     sectors_size::Union{AbstractVector{Int},Nothing}=nothing,
     center::AbstractVector{<:Real}=[0.0, 0.0, 0.0],
@@ -326,7 +326,7 @@ function interpolate(grid, func_vals::AbstractVector{<:Number})
     NUMPY = pyimport("numpy")
 
 
-    function interpolate_low(points, deriv=0, deriv_spherical=false, only_radial_deriv=false)
+    function interpolate_low(points; deriv=0, deriv_spherical=false, only_radial_deriv=false)
         if deriv_spherical && only_radial_deriv
             warn("Since `only_radial_derivs` is true, then only the derivative wrt to" *
                  "radius is returned and `deriv_spherical` value is ignored.")
@@ -344,17 +344,20 @@ function interpolate(grid, func_vals::AbstractVector{<:Number})
 
             deriv_r = NUMPY.einsum("ij,ij->j", r_values, r_sph_harm)
             deriv_theta = NUMPY.einsum("ij,ij->j", radial_components, deriv_sph_harm[1, :, :])
-            deriv_phi = NUMPY.einsum("ij,ij->", radial_components, deriv_sph_harm[2, :, :])
+            deriv_phi = NUMPY.einsum("ij,ij->j", radial_components, deriv_sph_harm[2, :, :])
 
             if deriv_spherical
-                return cat[deriv_r, deriv_theta, deriv_phi]
+                return hcat(deriv_r, deriv_theta, deriv_phi)
             end
 
             derivs = zeros(eltype(deriv_r), length(r_pts), 3)
-            for i_pt in 1:length(r_pts)
-                radial_i, theta_i, phi_i = r_pts[i_pt], theta[i_pt], phi[i_pt]
-                derivs[i_pt, :] = convert_derivative_from_spherical_to_cartesian(
-                    deriv_r[i_pt], deriv_theta[i_pt], deriv_phi[i_pt], radial_i, theta_i, phi_i)
+            for i in 1:length(r_pts)
+                # radial_i, theta_i, phi_i = r_pts[i_pt], theta[i_pt], phi[i_pt]
+                res = convert_derivative_from_spherical_to_cartesian(
+                    deriv_r[i], deriv_theta[i], deriv_phi[i],
+                    r_pts[i], theta[i], phi[i]
+                )
+                derivs[i, :] .= res
             end
             return derivs
         elseif !only_radial_deriv && deriv != 0
@@ -385,7 +388,7 @@ end
 function _generate_degree_from_radius(
     rgrid::OneDGrid,
     radius::Real,
-    r_sectors::AbstractVector{<:Real},
+    r_sectors::AbstractVector,
     deg_sectors::AbstractVector{Int},
     use_spherical::Bool=false
 )
@@ -404,8 +407,12 @@ function _generate_degree_from_radius(
 end
 
 function _find_l_for_rad_list(radial_arrays, radius_sectors, deg_sectors)
-    position = vec(sum(broadcast(>, reshape(radial_arrays, :, 1), reshape(radius_sectors, 1, :)), dims=2))
-    position .+= 1 # for julia index
+    if length(radius_sectors) == 0
+        position = ones(Int, length(radial_arrays))
+    else
+        position = vec(sum(broadcast(>, reshape(radial_arrays, :, 1), reshape(radius_sectors, 1, :)), dims=2))
+        position .+= 1 # for julia index
+    end
     return deg_sectors[position]
 end
 

@@ -294,7 +294,8 @@ end
 
 function helper_func_power_deriv(points)
     """Compute function derivative for test derivation."""
-    r = vecnorm(points, dims=2)
+    # r = vecnorm(points, dims=2)
+    r = vec(sqrt.(sum(abs2, points, dims=2)))
     dxf = 4 * points[:, 1] .* points[:, 1] ./ r
     dyf = 6 * points[:, 2] .* points[:, 2] ./ r
     dzf = 8 * points[:, 3] .* points[:, 3] ./ r
@@ -504,30 +505,279 @@ function test_interpolation_of_gaussian(center)
 end
 
 
-# function test_cubicspline_and_interp_mol(use_spherical)
-#     # "Test cubicspline interpolation values."
-#     odg = OneDGrid(collect(1:10), ones(10), (0, Inf))
-#     rad = transform_1d_grid(IdentityRTransform(), odg)
-#     #TODO: this is a bug, sector_r cannot be empty list
-#     atgrid = from_pruned(rad, radius=1, sectors_r=[], sectors_degrees=[7], use_spherical=use_spherical)
-# 
-#     values = helper_func_power(atgrid.points)
-#     # spls = fit_values(atgrid, values)
-# 
-#     for i in 1:10
-#         inter_func = interpolate(atgrid, values)
-#         # same result from points and interpolation
-#         @test all(isapprox.(
-#             inter_func(atgrid.points[atgrid.indices[i]:atgrid.indices[i+1]-1]),
-#             values[atgrid.indices[i]:atgrid.indices[i+1]-1])
-#         )
-#     end
-# end
-# 
-# @testset "test_cubicspline_and_interp_mol" begin
-#     test_cubicspline_and_interp_mol(false)
-#     # test_cubicspline_and_interp_mol(true)
-# end
+function test_cubicspline_and_interp_mol(use_spherical)
+    # "Test cubicspline interpolation values."
+    odg = OneDGrid(collect(1:10), ones(10), (0, Inf))
+    rad = transform_1d_grid(IdentityRTransform(), odg)
+    atgrid = from_pruned(rad, radius=1, sectors_r=[], sectors_degree=[7], use_spherical=use_spherical)
+
+    values = helper_func_power(atgrid.points)
+    # spls = fit_values(atgrid, values)
+
+    for i in 1:10
+        inter_func = interpolate(atgrid, values)
+        # same result from points and interpolation
+        expected = values[atgrid.indices[i]:atgrid.indices[i+1]-1]
+        result = inter_func(atgrid.points[atgrid.indices[i]:atgrid.indices[i+1]-1, :])
+        @test all(isapprox.(result, expected, atol=1e-7))
+    end
+end
+
+function test_cubicspline_and_interp(use_spherical)
+    # "Test cubicspline interpolation values."
+    odg = OneDGrid(collect(1:10) .+ 1, ones(10), (0, Inf))
+    rad_grid = transform_1d_grid(IdentityRTransform(), odg)
+    for _ in 1:10
+        degree = rand(5:20)
+        atgrid = from_pruned(rad_grid, radius=1, sectors_r=[], sectors_degree=[degree], use_spherical=use_spherical)
+        values = helper_func_power(atgrid.points)
+        # spls = fit_values(atgrid, values)
+
+        for i in 1:10
+            inter_func = interpolate(atgrid, values)
+            interp = inter_func(atgrid.points[atgrid.indices[i]:atgrid.indices[i+1]-1, :])
+            # same result from points and interpolation
+            @test all(isapprox.(interp, values[atgrid.indices[i]:atgrid.indices[i+1]-1]))
+        end
+
+        # test random x, y, z
+        for _ in 1:10
+            xyz = rand(10, 3) .* rand(1:6)
+            ref_value = helper_func_power(xyz)
+
+            interp_func = interpolate(atgrid, values)
+            @test all(isapprox.(interp_func(xyz), ref_value))
+        end
+    end
+end
+
+function test_interpolate_and_its_derivatives_on_polynomial(use_spherical)
+    # "Test interpolation of derivative of polynomial function."
+    odg = OneDGrid(collect(range(0.01, stop=10, length=50)), ones(50), (0, Inf))
+    rad = transform_1d_grid(IdentityRTransform(), odg)
+    for _ in 1:10
+        degree = rand(5:20)
+        atgrid = from_pruned(
+            rad,
+            radius=1,
+            sectors_r=[],
+            sectors_degree=[degree],
+            use_spherical=use_spherical,
+        )
+        values = helper_func_power(atgrid.points)
+        # spls = fit_values(atgrid, values)
+
+        for i in 1:10
+            points = atgrid.points[atgrid.indices[i]:atgrid.indices[i+1]-1, :]
+            interp_func = interpolate(atgrid, values)
+            result = interp_func(points, deriv=1)
+            # same result from points and interpolation
+            ref_deriv = helper_func_power(points, deriv=1)
+            # display(ref_deriv)
+            @test all(isapprox.(result, ref_deriv, atol=1e-7))
+        end
+
+        # test random x, y, z with fd
+        for _ in 1:10
+            xyz = rand(10, 3) .* rand(1:6)
+            ref_value = helper_func_power(xyz, deriv=1)
+            interp_func = interpolate(atgrid, values)
+            interp = interp_func(xyz, deriv=1)
+            @test all(isapprox.(interp, ref_value))
+        end
+
+        # test random x, y, z with fd
+        for _ in 1:10
+            xyz = rand(10, 3) .* rand(1:6)
+            ref_value = helper_func_power_deriv(xyz)
+            interp_func = interpolate(atgrid, values)
+            interp = interp_func(xyz, deriv=1, only_radial_deriv=true)
+            @test all(isapprox.(interp, ref_value))
+        end
+
+    end
+end
+
+function test_cartesian_moment_integral_with_gaussian_upto_order_1()
+    # "Test Cartesian moment integral of Gaussian up to order 1."
+    # The moment integral is computed analytically with wolframalpha in one-dimension.
+    # Generate atomic grid.
+    oned = GaussLegendre(10000)
+    btf = BeckeRTransform(0.0001, 0.1)
+    rad = transform_1d_grid(btf, oned)
+    atgrid = from_pruned(rad, radius=1, sectors_r=[], sectors_degree=[7])
+
+    # Create Gaussian function
+    func_vals = helper_func_gauss(atgrid.points, center=[0.175, 0.25, 0.15])
+
+    # Consider two centers.
+    orders = 1
+    centers = [0.0 0.0 0.0; 0.1 0.1 0.3]
+    result = moments(atgrid, orders, centers, func_vals)
+    # Test Cartesian order: (0, 0, 0), which is integral e^{-(x - c)^2} in x-dim
+    @test isapprox(result[1, 1], π^1.5, atol=1e-4)
+    @test isapprox(result[1, 2], π^1.5, atol=1e-4)
+
+    # Test Cartesian order: (1, 0, 0), which is integral (x - X_c) e^{-(x-c)^2}
+    #  Wolfram: integral (x - c) e^(-(x - d)^2)  = sqrt(pi) (d - c)
+    @test isapprox(result[2, 1], π^1.5 * 0.175, atol=1e-5)
+    @test isapprox(result[2, 2], π^1.5 * (0.175 - 0.1), atol=1e-5)
+
+    # Test (0, 0, 1)
+    @test isapprox(result[4, 1], (π^1.5) * 0.15, atol=1e-3)
+    @test isapprox(result[4, 2], (π^1.5) * (0.15 - 0.3), atol=1e-3)
+
+    # @test_throws TypeError begin
+    #     # orders should be integer
+    #     moments(atgrid, [1, 1], centers, func_vals)
+    # end
+    # @test_throws ValueError begin
+    #     multidim_f = [func_vals, func_vals]
+    #     moments(atgrid, 1, centers, multidim_f)  # func_vals should be ndim = 1
+    #     # centers should be ndim =2
+    #     moments(atgrid, 1, [1, 1, 1], func_vals)
+    #     moments(atgrid, 1, [[1, 1]], func_vals)  # centers should be dim=3
+    #     moments(atgrid, 0, centers, func_vals, type_mom="pure_radial")  # l>0
+    #     # func_vals too little points
+    #     moments(atgrid, 1, centers, [1, 2, 3])
+    # end
+end
+
+function test_pure_moment_integral_with_identity_function()
+    # "Test pure moment integral with identify function is mostly all zeros."
+    center = [0.0 0.0 0.0;]
+    oned = GaussLaguerre(15)
+    atgrid = AtomGrid(oned, degrees=[50])
+    func_vals = ones(size(atgrid.points, 1))
+    result = moments(atgrid, orders=2, centers=center, func_vals=func_vals, type_mom="pure")
+    @test all(isapprox.(result[2:end], 0.0, atol=1e-3))
+end
+
+using Test
+
+function test_pure_moment_integrals_with_gaussian_upto_order_5()
+    # "Test pure multipole moment integral with Gaussian upto order 5."
+    center = [0.0 0.5 1.0;]
+    # Obtained this from Horton on atomgrid
+    horton_answer = [
+        5.56832800,
+        -5.56832800,
+        8.75535482e-18,
+        -2.78416400,
+        4.87228700,
+        1.96316697e-18,
+        4.82231350,
+        -1.20557838,
+        -1.26575073e-17,
+        -3.48020500,
+        1.19286145e-16,
+        -6.39354483,
+        2.69575520,
+        5.23442037e-17,
+        -4.68564343e-17,
+        5.50268726e-01,
+        1.52258969,
+        -3.26136843e-13,
+        7.15349344,
+        -4.47463560,
+        -2.80536246e-13,
+        -1.40807305e-12,
+        -1.45587420,
+        2.57364630e-01,
+        -1.56214452e-13,
+        7.39543562e-01,
+        1.35462566e-12,
+        -6.82363035,
+        6.24076062,
+        2.67670790e-12,
+        5.05401764e-12,
+        2.82075627,
+        -7.72093891e-01,
+        3.45622696e-12,
+        -3.70252405e-13,
+        -1.22078763e-01,
+    ]
+    # Generate atomic grid.
+    oned = GaussLaguerre(50)
+    atgrid = AtomGrid(oned, degrees=[50])
+    order = 5
+    r = vec(sqrt.(sum(abs2, atgrid.points, dims=2)))
+    gaussian = exp.(-r .^ 2.0)
+    result = moments(atgrid, orders=order, centers=center, func_vals=gaussian, type_mom="pure")
+    @test all(isapprox.(result[:], horton_answer, atol=1e-6))
+end
+
+
+function test_pure_radial_moments_of_identity_function_against_pure_moments()
+    # "Test pure-radial multipole moments with identity function against pure moments."
+    center = [0.0 0.0 0.0;]
+    # Generate atomic grid.
+    oned = GaussLaguerre(100)
+    atgrid = AtomGrid(oned, degrees=[50])
+    order = 3
+    ident_func = ones(size(atgrid.points, 1))
+    result, orders = moments(atgrid, order, center, ident_func, "pure-radial", true)
+
+    radial = convert_cartesian_to_spherical(atgrid, atgrid.points, center[1, :])[:, 1]
+    # Go through each (n, deg, m)
+    for (i, row) in enumerate(eachrow(orders))
+        n, deg, ord = row
+        index = deg^2 + 2 * ord - 1
+        if ord > 0
+            index = deg^2 + 2 * ord - 1
+        else
+            index = deg^2 - 2 * ord
+        end
+        index += 1 # for julia
+        # Integrate Y_l^m r^l f(x) where f(x)=r^n
+        desired, orders = moments(atgrid, deg, center, radial .^ n, "pure", true)
+        @test isapprox(desired[index], result[i], atol=1e-4, rtol=1e-7)
+    end
+end
+
+function test_radial_moments_of_gaussian_against_horton()
+    # "Test radial moments of Gausian against theochem/horton."
+    center = [0.0 0.5 0.0;]
+    # Generate atomic grid.
+    oned = GaussLaguerre(100)
+    atgrid = AtomGrid(oned, degrees=[50])
+    horton_answer = [5.568328, 6.79414003, 9.744574, 15.78558743]
+    order = 3
+    r = vec(sqrt.(sum(abs2, atgrid.points, dims=2)))
+    gaussian = exp.(-r .^ 2.0)
+    result = moments(atgrid, orders=order, centers=center, func_vals=gaussian, type_mom="radial")
+    @test all(isapprox.(result[:, 1], horton_answer, atol=1e-4))
+end
+
+function test_pure_radial_moments_of_spherical_harmonics()
+    # "Test pure-radial multipole moments with spherical harmonics."
+    center = [0.0 0.0 0.0;]
+    # Generate atomic grid.
+    oned = GaussLaguerre(20)
+    atgrid = AtomGrid(oned, degrees=[50])
+    order = 5
+    sph_pts = convert_cartesian_to_spherical(atgrid, atgrid.points)
+    _, theta, phi = sph_pts[:, 1], sph_pts[:, 2], sph_pts[:, 3]
+    spherical = generate_real_spherical_harmonics(order, theta, phi)
+
+    i_sph = 1
+    for (l_sph, m_sph) in [(0, 0), (1, 0), (1, 1), (1, -1), (2, 0), (2, 1), (2, -1), (2, 2), (2, -2)]
+        result, orders = moments(atgrid, order ÷ 2, center, spherical[i_sph, :], "pure-radial", true)
+        for (i_mom, (_n_mom, l_mom, m_mom)) in enumerate(eachrow(orders))
+            # If the spherical harmonics match, then the integral over sph_coords is one
+            # then we are left with a diverging integral.
+            if l_mom == l_sph && m_sph == m_mom
+                @test result[i_mom] > 1000
+            else
+                # If the spherical harmonics don't match, then the integral over sph coords
+                # is zero.
+                @test isapprox(result[i_mom], 0.0, atol=1e-3) # TODO: the atol is 1e-5 in qc-grid
+            end
+        end
+        i_sph += 1
+    end
+end
+
 
 
 @testset "AtomGrid.jl" begin
@@ -563,4 +813,23 @@ end
     for center in eachrow(centers_values)
         test_interpolation_of_gaussian(center)
     end
+end
+
+
+@testset "test_cubicspline_and_interp_mol" begin
+    test_cubicspline_and_interp_mol(false)
+    test_cubicspline_and_interp_mol(true)
+    test_cubicspline_and_interp(false)
+    test_cubicspline_and_interp(true)
+    test_interpolate_and_its_derivatives_on_polynomial(false)
+end
+
+
+@testset "moment" begin
+    test_cartesian_moment_integral_with_gaussian_upto_order_1()
+    test_pure_moment_integral_with_identity_function()
+    test_pure_moment_integrals_with_gaussian_upto_order_5()
+    test_pure_radial_moments_of_identity_function_against_pure_moments()
+    test_radial_moments_of_gaussian_against_horton()
+    test_pure_radial_moments_of_spherical_harmonics()
 end

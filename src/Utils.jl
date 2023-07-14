@@ -466,31 +466,6 @@ end
 
 
 function generate_derivative_real_spherical_harmonics(l_max::Int, theta::AbstractVector{<:Real}, phi::AbstractVector{<:Real})
-    raw"""
-    Generate derivatives of real spherical harmonics.
-
-    If ϕ is zero, then the first component of the derivative wrt to
-    ϕ is set to zero.
-
-    Parameters
-    ----------
-    l_max : int
-        Largest angular degree of the spherical harmonics.
-    theta : Array{Float64}
-        Azimuthal angle θ ∈ [0, 2π] that are being evaluated on.
-        If this angle is outside of bounds, then periodicity is used.
-    phi : Array{Float64}
-        Polar angle ϕ ∈ [0, π] that are being evaluated on.
-        If this angle is outside of bounds, then periodicity is used.
-
-    Returns
-    -------
-    Array{Float64, 3}
-        Derivative of spherical harmonics, (theta first, then phi) of all degrees up to
-        l_max and orders m in Horton 2 order, i.e.
-        m = 0, 1, -1, ⋯, l, -l.
-    """
-
     num_pts = length(theta)
     # Shape (Derivs, Spherical, Pts)
     output = zeros(Float64, 2, (l_max + 1)^2, num_pts)
@@ -587,7 +562,7 @@ function convert_derivative_from_spherical_to_cartesian(deriv_r::Real, deriv_the
             cos(phi),
             0.0,
             -sin(phi) / r,
-        ], (3, 3))
+        ], (3, 3))'
     # If the radial component is zero, then put all zeros on the derivs of theta and phi
     if abs(r) < 1e-10
         jacobian[:, 2] .= 0.0
