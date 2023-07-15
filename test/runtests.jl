@@ -6,6 +6,8 @@ test_files = [
     "test_angular.jl",
     "test_rtransform.jl",
     "test_atomgrid.jl",
+    "test_becke.jl",
+    "test_hirshfeld.jl"
 ]
 
 println("Running tests:")

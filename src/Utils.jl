@@ -4,6 +4,9 @@ using SphericalHarmonics
 
 export get_cov_radii, generate_real_spherical_harmonics, convert_cart_to_sph, solid_harmonics, generate_orders_horton_order
 export sph_harm, generate_derivative_real_spherical_harmonics
+export newaxis
+
+const newaxis = [CartesianIndex()]
 
 _bragg = [
     0.47243153,
