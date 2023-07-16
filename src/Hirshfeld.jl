@@ -39,14 +39,12 @@ function generate_proatom(
     return _get_proatom_density(num, dist)
 end
 
-function call(
-    hw::HirshfeldWeights,
+function (hw::HirshfeldWeights)(
     points::AbstractMatrix{<:Real},
     atcoords::AbstractMatrix{<:Real},
     atnums::AbstractVector{<:Int},
     indices::AbstractVector{<:Int}
 )
-    @assert typeof(hw) == HirshfeldWeights
     # Evaluate integration weights on the given grid points
     npoint = size(points, 1)
     aim_weights = zeros(npoint)

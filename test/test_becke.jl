@@ -113,12 +113,12 @@ end
 
 function test_call(npoint)
     points = rand(npoint, 3) .* 10 .- 5
-    nums = [1, 2, 3]
-    centers = [1.2 2.3 0.1; -0.4 0.0 -2.2; 2.2 -1.5 0.0]
+    nums = [1, 2, 3, 2]
+    centers = [1.2 2.3 0.1; -0.4 0.0 -2.2; 2.2 -1.5 0.0; 1.5 2.0 0.0]
     becke = BeckeWeights(Dict(1 => 0.5, 2 => 0.8, 3 => 5.0), 3)
-    indices = [1, 14, 30, npoint + 1]
+    indices = [1, 14, 30, 46, npoint + 1]
     weights_ref = generate_weights(becke, points, centers, nums, nothing, indices)
-    weights_call = call(becke, points, centers, nums, indices)
+    weights_call = becke(points, centers, nums, indices)
     @test all(isapprox.(weights_ref, weights_call))
 end
 
@@ -149,7 +149,7 @@ end
 
     @testset "Tes compute weights function" begin
         test_call(50)
-        test_call(150)
+        test_call(200)
     end
 
 end

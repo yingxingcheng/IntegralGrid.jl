@@ -1,13 +1,14 @@
 module AtomicGrid
 
 using NPZ
-using IntegralGrid.BaseGrid: AbstractExtendedGrid, Grid, OneDGrid, _getproperty
+using IntegralGrid.BaseGrid: AbstractGrid, AbstractExtendedGrid, Grid, OneDGrid, _getproperty, get_grid
 using IntegralGrid.Angular: AngularGrid, convert_angular_sizes_to_degrees, _get_size_and_degree
-using IntegralGrid.Utils: convert_cart_to_sph, convert_derivative_from_spherical_to_cartesian, generate_real_spherical_harmonics, generate_derivative_real_spherical_harmonics
+using IntegralGrid.Utils: convert_cart_to_sph, convert_derivative_from_spherical_to_cartesian, generate_real_spherical_harmonics, generate_derivative_real_spherical_harmonics, newaxis
 using PyCall
+import IntegralGrid.BaseGrid.get_points
 
 
-export AtomGrid, from_preset, from_pruned, convert_cartesian_to_spherical, integrate_angular_coordinates, spherical_average, radial_component_splines, interpolate
+export AtomGrid, from_preset, from_pruned, convert_cartesian_to_spherical, integrate_angular_coordinates, spherical_average, radial_component_splines, interpolate, interpolate_low
 export _generate_degree_from_radius, _find_l_for_rad_list, _generate_atomic_grid
 export get_shell_grid, getproperty
 
@@ -113,6 +114,16 @@ function from_pruned(
     return AtomGrid(rgrid, degrees=degrees, center=center, rotate=rotate, use_spherical=use_spherical)
 end
 
+function get_points(grid::AtomGrid)
+    _grid = get_grid(grid)
+    _points = _grid._points
+    if ndims(_points) == 1
+        return _points .+ getfield(grid, :center)
+    else
+        return _points .+ getfield(grid, :center)[newaxis, :]
+    end
+end
+
 get_l_max(grid::AtomGrid) = maximum(grid.degrees)
 get_n_shells(grid::AtomGrid) = length(grid.degrees)
 Base.getproperty(grid::AtomGrid, key::Symbol) = (
@@ -120,27 +131,8 @@ Base.getproperty(grid::AtomGrid, key::Symbol) = (
 )
 
 
+
 function get_shell_grid(grid::AtomGrid, index::Int; r_sq::Bool=true)
-    raw"""Get the spherical integral grid at radial point from specified index.
-
-    The spherical integration grid has points scaled with the ith radial point
-    and weights multipled by the ith weight of the radial grid.
-
-    Note that when r=0 then the Cartesian points are all zeros.
-
-    Parameters
-    ----------
-    index : int
-        Index of radial points.
-    r_sq : bool, default True
-        If true, multiplies the angular grid weights with r^2.
-
-    Returns
-    -------
-    AngularGrid
-        AngularGrid at given radial index position and weights.
-
-    """
     if !(1 ≤ index ≤ length(grid.degrees))
         throw(ArgumentError("Index $index should be between 0 and less than number of radial points $(length(grid.degrees))."))
     end
@@ -170,39 +162,6 @@ function convert_cartesian_to_spherical(
     points::Union{AbstractVecOrMat{<:Real},Nothing}=nothing,
     center::Union{AbstractVector{<:Real},Nothing}=nothing
 )
-    raw"""
-    Convert a set of points from Cartesian to spherical coordinates.
-
-    The conversion is defined as
-
-    .. math::
-        \begin{align}
-            r &= \sqrt{x^2 + y^2 + z^2}\\
-            \theta &= \text{arc}\tan \left(\frac{y}{x}\right)\\
-            \phi &= \text{arc}\cos\left(\frac{z}{r}\right)
-        \end{align}
-
-    with the canonical choice :math:`r=0`, then :math:`\theta,\phi = 0`.
-    If the `points` attribute is not specified, then atomic grid points are used
-    and the canonical choice when :math:`r=0`, is the points
-    :math:`(r=0, \theta_j, \phi_j)` where :math:`(\theta_j, \phi_j)` come
-    from the Angular grid with the degree at :math:`r=0`.
-
-    Parameters
-    ----------
-    points : Array{Float64,2}, optional
-        Points in three-dimensions. Atomic grid points will be used if `points` is not given.
-    center : Array{Float64,1}, optional
-        Center of the atomic grid points. If `center` is not provided, then the atomic
-        center of this class is used.
-
-    Returns
-    -------
-    Array{Float64,2}
-        Spherical coordinates of atoms respect to the center
-        (radius :math:`r`, azimuthal :math:`\theta`, polar :math:`\phi`).
-    """
-
     is_atomic = false
     if isnothing(points)
         points = grid.points
@@ -321,12 +280,20 @@ function radial_component_splines(grid, func_vals::AbstractVector{<:Number})
     return res
 end
 
-function interpolate(grid, func_vals::AbstractVector{<:Number})
+function interpolate(grid::AbstractGrid, func_vals::AbstractVector{<:Number})
+    throw(ArgumentError("Not implemented!"))
+end
+
+function interpolate(grid::AtomGrid, func_vals::AbstractVector{<:Number})
     splines = radial_component_splines(grid, func_vals)
     NUMPY = pyimport("numpy")
 
 
-    function interpolate_low(points; deriv=0, deriv_spherical=false, only_radial_deriv=false)
+    function interpolate_low(
+        points::Union{AbstractVecOrMat{<:Real}};
+        deriv::Int=0,
+        deriv_spherical::Bool=false,
+        only_radial_deriv::Bool=false)
         if deriv_spherical && only_radial_deriv
             warn("Since `only_radial_derivs` is true, then only the derivative wrt to" *
                  "radius is returned and `deriv_spherical` value is ignored.")
@@ -354,8 +321,7 @@ function interpolate(grid, func_vals::AbstractVector{<:Number})
             for i in 1:length(r_pts)
                 # radial_i, theta_i, phi_i = r_pts[i_pt], theta[i_pt], phi[i_pt]
                 res = convert_derivative_from_spherical_to_cartesian(
-                    deriv_r[i], deriv_theta[i], deriv_phi[i],
-                    r_pts[i], theta[i], phi[i]
+                    deriv_r[i], deriv_theta[i], deriv_phi[i], r_pts[i], theta[i], phi[i]
                 )
                 derivs[i, :] .= res
             end

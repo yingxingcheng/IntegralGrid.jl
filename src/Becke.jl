@@ -107,9 +107,16 @@ function generate_weights(
     if sectors == 1
         weights .+= s_ab[:, select[1]] ./ sum(s_ab, dims=2)[:, 1]
     else
+        len_s_ab = size(s_ab, 1)
         for i in 1:sectors
-            sub_s_ab = s_ab[pt_ind[i]:pt_ind[i+1]-1, :]
-            weights[pt_ind[i]:pt_ind[i+1]-1] .+= sub_s_ab[:, select[i]] ./ sum(sub_s_ab, dims=2)[:, 1]
+            start, finish = pt_ind[i], pt_ind[i+1] - 1
+            if start <= len_s_ab && finish > len_s_ab
+                finish = len_s_ab
+            end
+            if start <= finish && finish <= len_s_ab
+                sub_s_ab = s_ab[start:finish, :]
+                weights[start:finish] .+= sub_s_ab[:, select[i]] ./ sum(sub_s_ab, dims=2)[:, 1]
+            end
         end
     end
 
@@ -201,8 +208,7 @@ function compute_weights(
     return weights
 end
 
-function call(
-    bw::BeckeWeights,
+function (bw::BeckeWeights)(
     points::AbstractMatrix{<:Real},
     atcoords::AbstractMatrix{<:Real},
     atnums::AbstractVector{<:Int},
@@ -218,16 +224,18 @@ function call(
     end
 
     aim_weights = Float64[]
-    chunk_pos = collect(1:chunk_size:npoint)
+    chunk_pos = collect(1:chunk_size:npoint+1)
+    push!(chunk_pos, npoint + 1)
     for i in 1:length(chunk_pos)-1
-        ibegin, iend = chunk_pos[i], chunk_pos[i+1]
+        ibegin, iend = chunk_pos[i], chunk_pos[i+1] - 1
         sub_indices = indices .- ibegin .+ 1
         sub_indices = clamp!(sub_indices, 1, Inf)
-        weights = generate_weights(bw, points[ibegin:iend-1, :], atcoords, atnums, nothing, new_indices)
-        println("size of weights: $(size(weights))")
+        weights = generate_weights(bw, points[ibegin:iend, :], atcoords, atnums, nothing, sub_indices)
         append!(aim_weights, weights)
     end
-    return hcat(aim_weights)
+    total_aim_weights = vec(hcat(aim_weights))
+    @assert size(total_aim_weights, 1) == npoint
+    return total_aim_weights
 end
 
 

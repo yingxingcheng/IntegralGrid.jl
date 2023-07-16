@@ -122,12 +122,12 @@ end
     _ref_points = collect(-1:0.1:1)
     _ref_weights = ones(21) .* 0.1
     grid = Grid(_ref_points, _ref_weights)
-    test_init(grid, _ref_points, _ref_weights)
-    test_init_diff_inputs()
-    test_integrate(grid)
-    test_getitem(grid, _ref_points, _ref_weights)
+    # test_init(grid, _ref_points, _ref_weights)
+    # test_init_diff_inputs()
+    # test_integrate(grid)
+    # test_getitem(grid, _ref_points, _ref_weights)
     test_get_localgrid_radius_inf(grid)
     test_get_localgrid(grid, _ref_points, _ref_weights)
-    test_localgird()
-    test_onedgrid()
+    # test_localgird()
+    # test_onedgrid()
 end

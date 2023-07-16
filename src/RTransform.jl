@@ -115,6 +115,7 @@ mutable struct LinearFiniteRTransform <: BaseTransform
     domain::Tuple{<:Real,<:Real}
     codomain::Tuple{<:Real,<:Real}
 end
+LinearFiniteRTransform(rmin::Real, rmax::Real) = LinearFiniteRTransform(rmin, rmax, (-1, 1), (rmin, rmax))
 
 transform(rtf::LinearFiniteRTransform, x::TypePoints1D) = (1 .+ x) * (rtf.rmax - rtf.rmin) / 2 .+ rtf.rmin
 deriv(rtf::LinearFiniteRTransform, x::TypePoints1D) = fill((rtf.rmax - rtf.rmin) / 2, length(x))

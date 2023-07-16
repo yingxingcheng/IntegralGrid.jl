@@ -159,28 +159,15 @@ function integrate(grid::AbstractGrid, value_arrays::Vector{<:Number}...)
     return sum(grid.weights .* reduce(.*, value_arrays))
 end
 
-"""
-    get_localgrid(center::Union{Float64, Vector{Float64}}, radius::Float64) -> LocalGrid
-
-Create a grid containing points within the given `radius` of `center`.
-
-# Arguments
-- `center`: Cartesian coordinates of the center of the local grid.
-- `radius`: Radius of sphere around the center. When equal to `Inf`, the
-  local grid coincides with the whole grid, which can be useful for debugging.
-
-# Returns
-- `LocalGrid`: Instance of `LocalGrid`.
-"""
-function get_localgrid(grid::AbstractGrid, center::Union{<:Real,Vector{<:Real}}, radius::T) where {T<:Real}
+function get_localgrid(grid::AbstractGrid, center::Union{<:Real,Vector{<:Real}}, radius::Real)
     if typeof(center) <: Real
         center = [center]
     end
-    sizep = ndims(grid._points) == 2 ? 1 : size(grid._points, 2)
+    sizep = ndims(grid.points) == 2 ? size(grid.points, 2) : 1
     if size(center, 1) != sizep
         throw(ArgumentError(
             "Argument center has the wrong shape \n" *
-            "center.shape: $(size(center)), points.shape: $(sizep)"
+            "center.shape: $(size(center, 1)), points.shape: $(sizep)"
         ))
     end
     if radius < 0
@@ -190,16 +177,21 @@ function get_localgrid(grid::AbstractGrid, center::Union{<:Real,Vector{<:Real}},
         throw(ArgumentError("Invalid radius: $radius"))
     end
     if radius == Inf
-        return LocalGrid(grid._points, grid.weights, center, collect(1:grid.size))
+        return LocalGrid(grid.points, grid.weights, center, collect(1:grid.size))
     else
         # When points.ndim == 1, we have to reshape a few things to make the input compatible with KDTree
-        _points = ndims(grid._points) == 1 ? reshape(grid._points, (:, 1)) : grid._points
-        if get_kdtree(grid) === nothing
+        _points = ndims(grid.points) == 1 ? reshape(grid.points, (:, 1)) : grid.points
+        if isnothing(grid.kdtree)
             # grid._kdtree = KDTree(_points')
             set_kdtree(grid, KDTree(_points'))
         end
-        indices = inrange(get_kdtree(grid), reshape(center, (1, :)), radius, false)[1]
-        return LocalGrid(grid._points[indices], grid.weights[indices], center, indices)
+        indices = inrange(grid.kdtree, reshape(center, (size(_points, 2), :)), radius, false)[1]
+        if ndims(grid.points) == 2
+            return LocalGrid(grid.points[indices, :], grid.weights[indices], center, indices)
+        else
+            return LocalGrid(grid.points[indices], grid.weights[indices], center, indices)
+        end
+        
     end
 end
 

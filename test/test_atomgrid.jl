@@ -771,7 +771,7 @@ function test_pure_radial_moments_of_spherical_harmonics()
             else
                 # If the spherical harmonics don't match, then the integral over sph coords
                 # is zero.
-                @test isapprox(result[i_mom], 0.0, atol=1e-3) # TODO: the atol is 1e-5 in qc-grid
+                @test isapprox(result[i_mom], 0.0, atol=1e-3) # TODO: the is 1e-5 in qc-grid
             end
         end
         i_sph += 1
