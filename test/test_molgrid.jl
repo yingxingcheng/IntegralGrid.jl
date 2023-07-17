@@ -46,7 +46,7 @@ function test_make_grid_integral()
         ("ultrafine", 6),
         ("insane", 6)
     ]
-        mg = MolGrid(numbers, coordinates, rgrid, grid_type, becke)
+        mg = from_preset(numbers, coordinates, rgrid, grid_type, becke)
         dist0 = [norm(coordinates[1, :] - vec(point)) for point in eachrow(mg.points)]
         dist1 = [norm(coordinates[2, :] - vec(point)) for point in eachrow(mg.points)]
         fn = exp.(-2 * dist0) / π + exp.(-2 * dist1) / π
@@ -67,7 +67,7 @@ function test_make_grid_different_grid_type()
     becke = BeckeWeights(nothing, 3)
 
     # grid_type test with list
-    mg = MolGrid(
+    mg = from_preset(
         numbers,
         coordinates,
         rad2,
@@ -91,7 +91,7 @@ function test_make_grid_different_grid_type()
     @test all(isapprox.(mg.atgrids[3].points, atgrid3.points))
 
     # grid type test with dict
-    mg = MolGrid(
+    mg = from_preset(
         numbers,
         coordinates,
         rad3,
@@ -126,7 +126,7 @@ function test_make_grid_different_rad_type()
     coordinates = [0.0 0.0 -0.5; 0.0 0.0 0.5; 0.0 0.5 0.0]
     becke = BeckeWeights(nothing, 3)
     # construct molgrid
-    mg = MolGrid(
+    mg = from_preset(
         numbers,
         coordinates,
         [rad1, rad2, rad3],
@@ -153,7 +153,7 @@ function test_make_grid_different_rad_type()
     @test all(isapprox.(mg.atgrids[3].points, atgrid3.points))
 
     # radial grid test with dict
-    mg = MolGrid(
+    mg = from_preset(
         numbers,
         coordinates,
         Dict(1 => rad1, 8 => rad3),
@@ -394,7 +394,7 @@ function test_from_size(rgrid)
     nums = [1, 1]
     coors = [0 0 -0.5; 0 0 0.5]
     becke = BeckeWeights(nothing, 3)
-    mol_grid = MolGrid(nums, coors, rgrid, 110, becke, rotate=0)
+    mol_grid = from_size(nums, coors, rgrid, 110, becke, rotate=0)
     atg1 = from_pruned(
         rgrid,
         radius=0.5,
@@ -422,7 +422,7 @@ function test_from_pruned(rgrid)
     radius = [1.0, 0.5]
     sectors_r = [[0.5, 1.0, 1.5], [0.25, 0.5]]
     sectors_deg = [[3, 7, 5, 3], [3, 2, 2]]
-    mol_grid = MolGrid(
+    mol_grid = from_pruned(
         nums,
         coors,
         rgrid,
@@ -484,7 +484,7 @@ function test_get_localgrid_1s(rgrid)
     @test all(isapprox.(wholegrid.indices, collect(1:grid.size)))
 
     # initialize MolGrid like horton
-    grid = MolGrid(
+    grid = from_size(
         nums, reshape(coords, 1, 3), rgrid, 110, BeckeWeights(), store=true
     )
     r = vec(sqrt.(sum(abs2, grid.points, dims=2)))
@@ -503,7 +503,7 @@ function test_get_localgrid_1s1s(rgrid)
     """Test local grid for a molecule with one atom."""
     nums = [1, 3]
     coords = [0.0 0.0 -0.5; 0.0 0.0 0.5]
-    grid = MolGrid(
+    grid = from_size(
         nums, coords, rgrid, 110, BeckeWeights(), rotate=0, store=true
     )
 

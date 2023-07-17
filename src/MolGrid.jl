@@ -7,8 +7,10 @@ using IntegralGrid.Becke: BeckeWeights
 using IntegralGrid.Hirshfeld: HirshfeldWeights
 
 import IntegralGrid.AtomicGrid.interpolate
+import IntegralGrid.AtomicGrid.from_preset
+import IntegralGrid.AtomicGrid.from_pruned
 
-export MolGrid, get_points, getindex, get_atomic_grid, interpolate
+export MolGrid, get_atomic_grid, interpolate, from_size
 
 mutable struct MolGrid <: AbstractExtendedGrid
     _grid::Grid
@@ -120,8 +122,7 @@ function interpolate(grid::MolGrid, func_vals::AbstractVector{<:Number})
     return interpolate_low
 end
 
-# from_preset
-function MolGrid(
+function from_preset(
     atnums::AbstractVector{<:Int},
     atcoords::AbstractMatrix{<:Real},
     rgrid::Union{OneDGrid,Vector{OneDGrid},Dict{<:Int,OneDGrid}},
@@ -172,8 +173,7 @@ function MolGrid(
     return MolGrid(atnums, atomic_grids, aim_weights, store=store)
 end
 
-# from_size(
-function MolGrid(
+function from_size(
     atnums::AbstractVector{<:Int},
     atcoords::AbstractMatrix{<:Real},
     rgrid::OneDGrid,
@@ -190,8 +190,7 @@ function MolGrid(
     return MolGrid(atnums, at_grids, aim_weights, store=store)
 end
 
-# function from_pruned(
-function MolGrid(
+function from_pruned(
     atnums::AbstractVector{<:Real},
     atcoords::AbstractMatrix{<:Real},
     rgrid::Union{OneDGrid,AbstractVector{<:Real}},

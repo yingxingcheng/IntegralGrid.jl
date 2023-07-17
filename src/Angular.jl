@@ -328,9 +328,8 @@ function _load_precomputed_angular_grid(degree::Int, grid_size::Int, use_spheric
     degrees = use_spherical ? SPHERICAL_DEGREES : LEBEDEV_DEGREES
     npoints = use_spherical ? SPHERICAL_NPOINTS : LEBEDEV_NPOINTS
     type = use_spherical ? "spherical" : "lebedev"
-    package_data_path = joinpath(@__DIR__, "..", "src", "data")
     sub_file_path = use_spherical ? "spherical_design" : "lebedev"
-    file_path = joinpath(package_data_path, sub_file_path)
+    file_path = joinpath(@__DIR__, "data", sub_file_path)
 
     if !(degree in keys(degrees))
         throw("Given degree=$degree is not supported, choose from $degrees")
@@ -342,7 +341,6 @@ function _load_precomputed_angular_grid(degree::Int, grid_size::Int, use_spheric
 
     filename = "$(type)_$(degree)_$(grid_size).npz"
     npz_file = joinpath(file_path, filename)
-
     data = npzread(npz_file)
     if length(data["weights"]) == 1
         weights = ones(size(data["points"])[1]) * data["weights"][1]

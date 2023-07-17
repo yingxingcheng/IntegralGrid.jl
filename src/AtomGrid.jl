@@ -10,7 +10,7 @@ import IntegralGrid.BaseGrid.get_points
 
 export AtomGrid, from_preset, from_pruned, convert_cartesian_to_spherical, integrate_angular_coordinates, spherical_average, radial_component_splines, interpolate, interpolate_low
 export _generate_degree_from_radius, _find_l_for_rad_list, _generate_atomic_grid
-export get_shell_grid, getproperty
+export get_shell_grid
 
 mutable struct AtomGrid <: AbstractExtendedGrid
     _grid::Grid
@@ -22,46 +22,48 @@ mutable struct AtomGrid <: AbstractExtendedGrid
     use_spherical::Bool
     indices
     basis
-end
 
-function AtomGrid(
-    rgrid::OneDGrid;
-    degrees::Union{AbstractVector{<:Real},Nothing}=nothing,
-    sizes::AbstractVector{<:Int}=Int[],
-    center::Union{AbstractVector{<:Real},Nothing}=[0.0, 0.0, 0.0],
-    rotate::Int=0,
-    use_spherical::Bool=false
-)
-    center = isnothing(center) ? [0.0, 0.0, 0.0] : center
-    _input_type_check(rgrid, center)
 
-    if rotate != 0 && !(0 <= rotate < 2^32 - length(rgrid.points))
-        throw(ArgumentError("rotate need to be an integer [0, 2^32 - length(rgrid)] rotate is not within [0, 2^32 - length(rgrid)], got $rotate"))
-    end
-    if isnothing(degrees)
-        degrees = convert_angular_sizes_to_degrees(sizes)
-    end
-    if length(degrees) == 1
-        degrees = fill(degrees[1], length(rgrid.points))
-    end
-    (
-        _points,
-        _weights,
-        _indices,
-        _degrees
-    ) = _generate_atomic_grid(rgrid, degrees, rotate=rotate, use_spherical=use_spherical)
-
-    return AtomGrid(
-        Grid(_points, _weights),
-        rgrid,
-        _degrees,
-        center,
-        rotate,
-        use_spherical,
-        _indices,
-        nothing
+    function AtomGrid(
+        rgrid::OneDGrid;
+        degrees::Union{AbstractVector{<:Real},Nothing}=nothing,
+        sizes::AbstractVector{<:Int}=Int[],
+        center::Union{AbstractVector{<:Real},Nothing}=[0.0, 0.0, 0.0],
+        rotate::Int=0,
+        use_spherical::Bool=false
     )
+        center = isnothing(center) ? [0.0, 0.0, 0.0] : center
+        _input_type_check(rgrid, center)
+
+        if rotate != 0 && !(0 <= rotate < 2^32 - length(rgrid.points))
+            throw(ArgumentError("rotate need to be an integer [0, 2^32 - length(rgrid)] rotate is not within [0, 2^32 - length(rgrid)], got $rotate"))
+        end
+        if isnothing(degrees)
+            degrees = convert_angular_sizes_to_degrees(sizes)
+        end
+        if length(degrees) == 1
+            degrees = fill(degrees[1], length(rgrid.points))
+        end
+        (
+            _points,
+            _weights,
+            _indices,
+            _degrees
+        ) = _generate_atomic_grid(rgrid, degrees, rotate=rotate, use_spherical=use_spherical)
+
+        return new(
+            Grid(_points, _weights),
+            rgrid,
+            _degrees,
+            center,
+            rotate,
+            use_spherical,
+            _indices,
+            nothing
+        )
+    end
 end
+
 
 function from_preset(
     rgrid::OneDGrid;
@@ -86,13 +88,7 @@ function from_preset(
     rad, npt = _data["$(atnum)_rad"], _data["$(atnum)_npt"]
     degs = convert_angular_sizes_to_degrees(npt, use_spherical=use_spherical)
     rad_degs = _find_l_for_rad_list(rgrid.points, rad, degs)
-    return AtomGrid(
-        rgrid,
-        degrees=rad_degs,
-        center=center,
-        rotate=rotate,
-        use_spherical=use_spherical
-    )
+    return AtomGrid(rgrid, degrees=rad_degs, center=center, rotate=rotate,use_spherical=use_spherical)
 end
 
 function from_pruned(

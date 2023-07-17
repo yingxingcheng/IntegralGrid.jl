@@ -8,7 +8,7 @@ export AbstractGrid, AbstractExtendedGrid
 export Grid, LocalGrid, OneDGrid
 
 export get_points, get_weights, get_kdtree, get_size, get_gird
-export getindex, integrate, moments, save, get_localgrid
+export integrate, moments, save, get_localgrid
 export _d_grid, _getproperty
 
 abstract type AbstractGrid end
