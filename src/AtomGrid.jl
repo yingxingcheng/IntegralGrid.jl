@@ -88,7 +88,7 @@ function from_preset(
     rad, npt = _data["$(atnum)_rad"], _data["$(atnum)_npt"]
     degs = convert_angular_sizes_to_degrees(npt, use_spherical=use_spherical)
     rad_degs = _find_l_for_rad_list(rgrid.points, rad, degs)
-    return AtomGrid(rgrid, degrees=rad_degs, center=center, rotate=rotate,use_spherical=use_spherical)
+    return AtomGrid(rgrid, degrees=rad_degs, center=center, rotate=rotate, use_spherical=use_spherical)
 end
 
 function from_pruned(
@@ -215,6 +215,7 @@ function integrate_angular_coordinates(grid::AtomGrid, func_vals::AbstractArray{
         push!(radial_coefficients, res)
     end
 
+    # fixme: StackOverFlowError when the radial_coefficients is too long
     # Convert to array and adjust the size
     radial_coefficients = cat(radial_coefficients..., dims=_ndim)
 
